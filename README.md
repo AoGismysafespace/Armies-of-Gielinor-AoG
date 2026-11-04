@@ -8,7 +8,7 @@
 
 An enhanced standalone preservation and revival of Jagex's classic tactical turn-based strategy game **Armies of Gielinor** (originally released in 2010 on the FunOrb platform).
 
-This Standalone Steam Edition integrates native 64-bit Windows packaging, Steamworks P2P multiplayer tunneling, modern high-DPI scaling, an authoritative multiplayer battle simulation engine, and a complete 31-page illustrated tactical manual with all 75 unit profile dossiers (*Steckbriefe*).
+This Standalone Steam Edition integrates native 64-bit Windows packaging, Steamworks P2P multiplayer tunneling, modern high-DPI scaling, an authoritative multiplayer battle simulation engine, and a complete 31-page illustrated tactical manual with all 75 unit profile dossiers.
 
 ---
 
