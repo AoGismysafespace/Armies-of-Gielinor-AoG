@@ -16,7 +16,7 @@ Welcome to the definitive standalone release of **Armies of Gielinor**, the turn
 
 ### Quick Start Guide
 
-1. Download and extract **`ArmiesOfGielinor_v1.0.zip`**.
+1. Download and extract **`ArmiesOfGielinor_1.0.zip`**.
 2. Keep **Steam** running in the background.
 3. Launch **`ArmiesOfGielinor.exe`** and play!
 

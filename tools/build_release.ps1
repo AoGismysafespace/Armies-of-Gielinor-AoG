@@ -45,8 +45,8 @@ $stagingRoot = Join-Path $workspace "release_staging"
 $stagingDir = Join-Path $stagingRoot "ArmiesOfGielinor"
 $extractedDir = Join-Path $workspace "extracted"
 
-# Primary Versioned Release (v1.0) — historical v0.1..v0.28 ZIPs are preserved in releases/archive/
-$releaseVersion = "v1.0"
+# Primary Versioned Release (1.0) — historical 0.01..0.28 ZIPs are preserved in releases/archive/
+$releaseVersion = "1.0"
 $releasesDir = Join-Path $workspace "releases"
 $archiveDir = Join-Path $releasesDir "archive"
 $releaseZip = Join-Path $releasesDir "ArmiesOfGielinor_${releaseVersion}.zip"
@@ -183,19 +183,22 @@ if (Test-Path $liveAppDir) {
 }
 
 # 8. Synchronize the dedicated 'Aktuell/' folder per project rule
-Write-Host "Syncing dedicated 'Aktuell/' folder with current release..."
+Write-Host "Syncing dedicated 'Aktuell/' folder with current release (1.0)..."
 $aktuellDir = Join-Path $workspace "Aktuell"
 if (-not (Test-Path $aktuellDir)) {
     New-Item -ItemType Directory -Path $aktuellDir -Force | Out-Null
 }
-# Keep only the current release ZIP in Aktuell/
+# Keep only the current release ZIP in Aktuell/ (named ArmiesOfGielinor_1.0.zip)
 Get-ChildItem -Path $aktuellDir -File -Filter "ArmiesOfGielinor*.zip" | 
-    Where-Object { $_.Name -ne (Split-Path $releaseZip -Leaf) } | 
+    Where-Object { $_.Name -ne "ArmiesOfGielinor_1.0.zip" } | 
     Remove-Item -Force
-Copy-Item $releaseZip (Join-Path $aktuellDir (Split-Path $releaseZip -Leaf)) -Force
+Copy-Item $releaseZip (Join-Path $aktuellDir "ArmiesOfGielinor_1.0.zip") -Force
 
-# Mirror playable game folder into Aktuell/ArmiesOfGielinor/
-$aktuellAppDir = Join-Path $aktuellDir "ArmiesOfGielinor"
+# Mirror playable game folder into Aktuell/ArmiesOfGielinor_1.0/
+$aktuellAppDir = Join-Path $aktuellDir "ArmiesOfGielinor_1.0"
+if (Test-Path (Join-Path $aktuellDir "ArmiesOfGielinor")) {
+    Remove-Item (Join-Path $aktuellDir "ArmiesOfGielinor") -Recurse -Force -ErrorAction SilentlyContinue
+}
 if (-not (Test-Path $aktuellAppDir)) {
     New-Item -ItemType Directory -Path $aktuellAppDir -Force | Out-Null
 }

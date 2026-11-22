@@ -71,7 +71,7 @@ import javax.sound.sampled.Mixer;
  */
 public class BugReporter {
 
-    public static final String GAME_VERSION = "v1.0";
+    public static final String GAME_VERSION = "1.0";
     private static final int MAX_LOG_LINES = 150;
 
     /**
