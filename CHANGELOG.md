@@ -15,7 +15,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.28] – 2026-11-22 (Asset Loading 75% Freeze Fix & Dynamic JS5 Serving)
+## [v0.28] – 2026-11-22 (Asset Loading 75% Freeze Fix & Dynamic JS5 Serving)
 
 ### Core Engine, Cache Streaming & Asset Loading Fixes
 - **Dynamic JS5 Disk Cache Streaming Fallback (`AoGServer`)**:
@@ -29,7 +29,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.27] – 2026-11-21 (Boot Display Freeze & Resolution Reversion Permanent Fix)
+## [v0.27] – 2026-11-21 (Boot Display Freeze & Resolution Reversion Permanent Fix)
 
 ### Graphics, Display & Engine Stability Fixes
 - **Eliminated the "Loading Extra Data - 75%" Display Freeze (`DisplayManager`, `StandaloneRunner`)**:
@@ -41,11 +41,11 @@ All notable changes to the standalone preservation release are documented in thi
   - Preserved 100% of user-driven window controls: F11 / Alt+Enter toggle (`lambda$main$25`), in-game settings menu (`applyInGameScreenMode`), and mouse window dragging (`ComponentAdapter`).
   - In `DisplayManager.applyWindowMode()`, ensured `ra.e.h = true` and `mh.c = 0` whenever entering Fullscreen (Native), preventing FunOrb's letterbox offset logic from pushing the game canvas downwards.
 - **Diagnostics & BugReporter Suite Enhancements (`BugReporter.java`)**:
-  - Updated `BugReporter` to `v1.0.27` with dynamic runtime resolution tracking, fail-safe audio device enumeration, and unconditional loading stage introspection.
+  - Updated `BugReporter` to `v0.27` with dynamic runtime resolution tracking, fail-safe audio device enumeration, and unconditional loading stage introspection.
 
 ---
 
-## [v1.0.26] – 2026-11-15 (Steam Invite Black Screen & P2P Timeout Recovery Fix)
+## [v0.26] – 2026-11-15 (Steam Invite Black Screen & P2P Timeout Recovery Fix)
 
 ### Online Steam Multiplayer Fixes
 - **Eliminated Black-Screen Crash (`error_game_crash`) During Steam Invite Join (`StandaloneRunner`, `bb.class`)**:
@@ -61,7 +61,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.25] – 2026-11-15 (Steam Invitation Lobby & Room Auto-Join Fix)
+## [v0.25] – 2026-11-15 (Steam Invitation Lobby & Room Auto-Join Fix)
 
 ### Online Steam Multiplayer Fixes
 - **Restored In-Game Steam Invite Screen Transition (`StandaloneRunner` / `PatchSteamInviteLobby`)**:
@@ -77,7 +77,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.24] – 2026-11-14 (Online Multiplayer God Selection & Coat of Arms Fix)
+## [v0.24] – 2026-11-14 (Online Multiplayer God Selection & Coat of Arms Fix)
 
 ### Online Steam Multiplayer Fixes
 - **Restored Friend & Host God Selection (`AoGBattleBridge.startMatch`)**:
@@ -96,11 +96,11 @@ All notable changes to the standalone preservation release are documented in thi
   - Added `BattleEngine.startMatch(..., byte[][] playerCoats)` overload so `AoGServer.handleStartMatchRequest()` supplies every lobby slot's authoritative 12-byte Coat of Arms directly into `serverHa.T[slot]` and Packet 77 (falling back to `ah.a` only for Host slot 0, and neutral `new ln()` for coatless guest slots).
 - **Automated Regression Verification (`MultiplayerGodAndCoatSandboxTest`, `MultiplayerStartMatchSandboxTest`, `RestoreAndVerify`)**:
   - Updated `RestoreAndVerify` to sync all `jar_extracted/net/alterorb/steam/*.class` files and verified `0 violations` across all target Java 18 JARs.
-  - Verified all v1.0.24 fixes and existing multiplayer match-launch regressions under the bundled OpenJDK 18.0.2.1 runtime.
+  - Verified all v0.24 fixes and existing multiplayer match-launch regressions under the bundled OpenJDK 18.0.2.1 runtime.
 
 ---
 
-## [v1.0.23] – 2026-11-14 (Multiplayer Lobby Option Mapping & Atomic Match Launch Fix)
+## [v0.23] – 2026-11-14 (Multiplayer Lobby Option Mapping & Atomic Match Launch Fix)
 
 ### Multiplayer Lobby & Match Launch Stability
 - **Resolved Recurring 1-in-3 "Start Game" Crash & Connection Drop (`ha.l -> ha.<init>`)**:
@@ -115,7 +115,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.22] – 2026-11-12 (Multiplayer Host Launch Linkage Fix)
+## [v0.22] – 2026-11-12 (Multiplayer Host Launch Linkage Fix)
 
 ### Multiplayer Networking & Stability
 - **Resolved Multiplayer Host Crash on "Start Game" (`NoSuchMethodError`)**:
@@ -129,7 +129,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.21] – 2026-11-12 (Skirmish AI Heraldry & Pantheon Slot Inversion Fix)
+## [v0.21] – 2026-11-12 (Skirmish AI Heraldry & Pantheon Slot Inversion Fix)
 
 ### Gameplay & Tactical Skirmish
 - **Resolved Turn Slot Inversion in Skirmish vs Computer AI**:
@@ -149,7 +149,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.20] – 2026-11-11 (Consolidated Options Script & Redundancy Removal)
+## [v0.20] – 2026-11-11 (Consolidated Options Script & Redundancy Removal)
 
 ### Configuration & Launcher Cleanliness
 - **Unified on Single Comprehensive `Enhanced_Options.bat` Launcher**:
@@ -161,7 +161,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.19] – 2026-11-11 (Achievement UI Cleanliness & Obsolete Login Elimination)
+## [v0.19] – 2026-11-11 (Achievement UI Cleanliness & Obsolete Login Elimination)
 
 ### User Interface & Standalone Cleanliness
 - **Eliminated Obsolete "Log in / Create account" Button in Achievement Menu**:
@@ -174,7 +174,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.18] – 2026-11-11 (Offline Identity Sanitization & Privatized Commander Fallback)
+## [v0.18] – 2026-11-11 (Offline Identity Sanitization & Privatized Commander Fallback)
 
 ### Configuration & Privacy
 - **Privatized Generic Offline Identity Fallback (`Commander`)**:
@@ -187,7 +187,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.17] – 2026-11-10 (Top-Right Turn Order HUD Heraldry Synchronization)
+## [v0.17] – 2026-11-10 (Top-Right Turn Order HUD Heraldry Synchronization)
 
 ### Visuals & HUD Interface
 - **Complete Top-Right Player Turn Order Heraldry Synchronization**:
@@ -200,7 +200,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.16] – 2026-11-10 (Enhanced Options Configuration & Toggle-able AI Heraldry)
+## [v0.16] – 2026-11-10 (Enhanced Options Configuration & Toggle-able AI Heraldry)
 
 ### Configuration & Customization
 - **Dedicated Enhanced Options Configuration (`enhanced_options.txt`)**:
@@ -218,11 +218,11 @@ All notable changes to the standalone preservation release are documented in thi
   - Seamlessly keeps both `enhanced_options.txt` and legacy `player.properties` in sync.
 
 ### Gameplay & Tactics
-- **Independent AI Heraldry Toggle**: Made the Coat of Arms randomizer (introduced in v1.0.14) fully toggle-able alongside AI pantheons. Players who prefer the nostalgic 2009 visual experience of uniform bot crests can toggle it off at any time without impacting other game enhancements.
+- **Independent AI Heraldry Toggle**: Made the Coat of Arms randomizer (introduced in v0.14) fully toggle-able alongside AI pantheons. Players who prefer the nostalgic 2009 visual experience of uniform bot crests can toggle it off at any time without impacting other game enhancements.
 
 ---
 
-## [v1.0.15] – 2026-11-10 (Tactical AI Pantheon & Skirmish God Selection Diversity)
+## [v0.15] – 2026-11-10 (Tactical AI Pantheon & Skirmish God Selection Diversity)
 
 ### Gameplay & Tactics
 - **AI Skirmish Pantheon Randomizer (Option A - Default)**: Resolved the legacy 2009 limitation where all computer opponents in Skirmish / Sandbox matches automatically inherited and mirrored the human player's 3 chosen gods (rd.j.xb.g(...)):
@@ -240,7 +240,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.14] – 2026-11-10 (Tactical AI Heraldry & Skirmish Coat of Arms Randomizer)
+## [v0.14] – 2026-11-10 (Tactical AI Heraldry & Skirmish Coat of Arms Randomizer)
 
 ### Gameplay & Visuals
 - **AI Skirmish Coat of Arms Randomizer**: Eliminated the legacy 2009 fallback behavior where all computer opponents in Skirmish / Sandbox matches duplicated the human player's custom crest and colors (`rd.j.xb.T[i] = ah.a`):
@@ -250,7 +250,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.13] – 2026-11-10 (Safe Display & Window Lifecycle / Match-2 Screen Freeze Elimination)
+## [v0.13] – 2026-11-10 (Safe Display & Window Lifecycle / Match-2 Screen Freeze Elimination)
 
 ### Fixed
 - **Match-2 / Subsequent Match Screen Freeze**: Resolved the critical bug where a player could successfully complete 1 match (sandbox or campaign), but upon launching any subsequent match, the map view was permanently frozen with game audio, clicks, and ESC menu still responding in the background:
@@ -260,7 +260,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.12] – 2026-11-08 (Direct3D Hardware Acceleration & 512MB-1GB Fixed Heap Optimization)
+## [v0.12] – 2026-11-08 (Direct3D Hardware Acceleration & 512MB-1GB Fixed Heap Optimization)
 
 ### Performance & Engine
 - **Direct3D Hardware Acceleration (Option 2)**:
@@ -272,7 +272,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.11] – 2026-11-08 (AI Turn Frame-Slicing Optimization)
+## [v0.11] – 2026-11-08 (AI Turn Frame-Slicing Optimization)
 
 ### Fixed
 - **Multi-AI Application Freezing & Stutter on Large / Huge Maps**: Resolved the multi-second application freeze and Windows "Not Responding" lockup during computer opponents' turns in 4, 6, and 8-player matches on Large (1,600 tiles) and Huge (3,600 tiles) maps:
@@ -281,7 +281,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.10] — 2026-11-08 (Anti-Idle Inactivity Disconnect Prevention)
+## [v0.10] — 2026-11-08 (Anti-Idle Inactivity Disconnect Prevention)
 
 ### Fixed
 - **20-Minute Inactivity Disconnect**: Eliminated the legacy 2009 web browser inactivity kick that forcibly closed the network connection (`dj.a`) and kicked players back to the title screen if no mouse or keyboard inputs occurred for 20 minutes:
@@ -290,7 +290,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.9] — 2026-11-08 (Settings Stream Framing & Telemetry Handshake Fix)
+## [v0.9] — 2026-11-08 (Settings Stream Framing & Telemetry Handshake Fix)
 
 ### Fixed
 - **Settings-Triggered Ghost Lobby Bug**: Resolved an issue where adjusting game speed, audio levels, or graphics settings in the Options menu caused the game to suddenly abandon the settings screen, open an online multiplayer lobby, and freeze on a loading screen.
@@ -300,7 +300,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.8] — 2026-11-07 (Multiplayer Post-Combat Turn Retention Fix)
+## [v0.8] — 2026-11-07 (Multiplayer Post-Combat Turn Retention Fix)
 
 ### Fixed
 - **Post-Combat Premature Turn-End Bug (All Edge Cases)**: Resolved all remaining multiplayer scenarios where a player's turn automatically ended on the exact frame a fight between units finished:
@@ -310,14 +310,14 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.7] — 2026-11-04 (Combat Turn Persistence Milestone)
+## [v0.7] — 2026-11-04 (Combat Turn Persistence Milestone)
 
 ### Fixed
 - Re-mapped Client Opcode 74 in `AoGServer.java` from turn timeout to modal combat animation pause so normal unit attacks no longer force-advance the active player's turn.
 
 ---
 
-## [v1.0.6] — 2026-11-04 (Golden Master / Publishing Release)
+## [v0.6] — 2026-11-04 (Golden Master / Publishing Release)
 
 ### Added
 - **Complete 31-Page Retro Game Manual (`Manual.pdf`)**: Illustrated retro game manual with authentic RuneScape fonts (`Kingthings Petrock`, `RuneScape Quill`, `FunOrb Roman`, `RuneScape Bold 12`), vector HUD schematics, and the complete 75-unit **Steckbrief Compendium**.
@@ -332,7 +332,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.5] — 2026-11-04 (Full Win Conditions & Match Concluding)
+## [v0.5] — 2026-11-04 (Full Win Conditions & Match Concluding)
 
 ### Added
 - **Authoritative Win Condition Monitoring**: Built real-time evaluation in `AoGBattleBridge.java` for all 4 victory/defeat triggers:
@@ -344,7 +344,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.4] — 2026-11-04 (Disconnect-Free Unit Slaying)
+## [v0.4] — 2026-11-04 (Disconnect-Free Unit Slaying)
 
 ### Fixed
 - **Fatal Disconnection Veil on Unit Deaths**: Solved the fatal client disconnect bug where slaying an enemy unit caused `"Can see death"` socket errors.
@@ -352,7 +352,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.3] — 2026-11-04 (Dynamic Battle Event Pump)
+## [v0.3] — 2026-11-04 (Dynamic Battle Event Pump)
 
 ### Added
 - **Multiplayer Combat Synchronization**: Implemented dynamic FIFO event pump in `AoGBattleBridge.java` translating engine battle events into Packet 68 combat strikes (`opcode 0x60`).
@@ -360,7 +360,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.2] — 2026-11-03 (Lobby Discovery & Turn Coordination)
+## [v0.2] — 2026-11-03 (Lobby Discovery & Turn Coordination)
 
 ### Added
 - **Steamworks P2P Relay Tunneling**: Direct lobby creation, overlay invites, and friend joining without requiring port forwarding.
@@ -368,7 +368,7 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
-## [v1.0.1] — 2026-11-03 (Initial High-DPI & Java 18 Packaging)
+## [v0.1] — 2026-11-03 (Initial High-DPI & Java 18 Packaging)
 
 ### Added
 - **Standalone Native Packaging**: Integrated 64-bit Windows launcher executable (`ArmiesOfGielinor.exe`).

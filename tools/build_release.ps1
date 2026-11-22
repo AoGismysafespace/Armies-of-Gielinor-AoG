@@ -136,71 +136,12 @@ Compress-Archive -Path $stagingDir -DestinationPath $releaseZip -Force
 # 6. Save v1.0.21 milestone backup & add alongside untouched historical ZIPs in releases/ and ArmiesOfGielinor_GitHub/release/
 Write-Host "Saving $releaseVersion milestone backup and archiving prior versions alongside preserved historical releases..."
 if (Test-Path $archiveDir) {
-    $oldV1011Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.11.zip"
-    if (Test-Path $oldV1011Zip) {
-        Copy-Item $oldV1011Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.11.zip") -Force
-    }
-    # Ensure v1.0.13 is preserved in archive
-    $oldV1013Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.13.zip"
-    if (Test-Path $oldV1013Zip) {
-        Copy-Item $oldV1013Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.13.zip") -Force
-    }
-    $oldV1015Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.15.zip"
-    if (Test-Path $oldV1015Zip) {
-        Copy-Item $oldV1015Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.15.zip") -Force
-    }
-    $oldV1016Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.16.zip"
-    if (Test-Path $oldV1016Zip) {
-        Copy-Item $oldV1016Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.16.zip") -Force
-    }
-    $oldV1017Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.17.zip"
-    if (Test-Path $oldV1017Zip) {
-        Copy-Item $oldV1017Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.17.zip") -Force
-    }
-    $oldV1018Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.18.zip"
-    if (Test-Path $oldV1018Zip) {
-        Copy-Item $oldV1018Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.18.zip") -Force
-    }
-    $oldV1019Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.19.zip"
-    if (Test-Path $oldV1019Zip) {
-        Copy-Item $oldV1019Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.19.zip") -Force
-    }
-    $oldV1020Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.20.zip"
-    if (Test-Path $oldV1020Zip) {
-        Copy-Item $oldV1020Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.20.zip") -Force
-    }
-    $oldV1021Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.21.zip"
-    if (Test-Path $oldV1021Zip) {
-        Copy-Item $oldV1021Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.21.zip") -Force
-    }
-    $oldV1022Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.22.zip"
-    if (Test-Path $oldV1022Zip) {
-        Copy-Item $oldV1022Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.22.zip") -Force
-    }
-    $oldV1023Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.23.zip"
-    if (Test-Path $oldV1023Zip) {
-        Copy-Item $oldV1023Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.23.zip") -Force
-    }
-    $oldV1024Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.24.zip"
-    if (Test-Path $oldV1024Zip) {
-        Copy-Item $oldV1024Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.24.zip") -Force
-    }
-    $oldV1025Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.25.zip"
-    if (Test-Path $oldV1025Zip) {
-        Copy-Item $oldV1025Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.25.zip") -Force
-    }
-    $oldV1026Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.26.zip"
-    if (Test-Path $oldV1026Zip) {
-        Copy-Item $oldV1026Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.26.zip") -Force
-    }
-    $oldV1027Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.27.zip"
-    if (Test-Path $oldV1027Zip) {
-        Copy-Item $oldV1027Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.27.zip") -Force
-    }
-    $oldV1028Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.28.zip"
-    if (Test-Path $oldV1028Zip) {
-        Copy-Item $oldV1028Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.28.zip") -Force
-    }
+    # Automatically archive all prior version ZIPs (v0.X / v1.0.X) into releases/archive/
+    Get-ChildItem -Path $releasesDir -File -Filter "ArmiesOfGielinor_*.zip" |
+        Where-Object { $_.Name -ne (Split-Path $releaseZip -Leaf) } |
+        ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $archiveDir $_.Name) -Force
+        }
     Copy-Item $releaseZip (Join-Path $archiveDir "ArmiesOfGielinor_${releaseVersion}_GoldenMaster.zip") -Force
 }
 Copy-Item $releaseZip (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_GoldenMaster.zip") -Force
