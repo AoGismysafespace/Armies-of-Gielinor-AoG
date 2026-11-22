@@ -18,7 +18,7 @@ import javax.sound.sampled.Mixer;
 /**
  * ==============================================================================
  * BugReporter: Automated Game Diagnostic & Privacy-Scrubbed Log Exporter
- * Milestone: v1.0.27 — Boot Display Freeze & Resolution Reversion Permanent Fix
+ * Milestone: v1.0 — Standalone Golden Master Release
  * ==============================================================================
  *
  * 1. PURPOSE & ARCHITECTURAL CONTEXT:
@@ -71,7 +71,7 @@ import javax.sound.sampled.Mixer;
  */
 public class BugReporter {
 
-    public static final String GAME_VERSION = "v1.0.27";
+    public static final String GAME_VERSION = "v1.0";
     private static final int MAX_LOG_LINES = 150;
 
     /**

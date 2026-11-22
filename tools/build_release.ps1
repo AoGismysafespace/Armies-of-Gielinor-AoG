@@ -1,6 +1,6 @@
 ﻿# ==============================================================================
 # build_release.ps1: Automated Packager for Armies of Gielinor Release ZIP
-# Milestone: v1.0.28 — Asset Loading 75% Freeze Fix & Dynamic JS5 Serving
+# Milestone: v1.0 — Standalone Golden Master Release
 #
 # 1. ARCHITECTURAL CONTEXT & RUNTIME SPECIFICATIONS:
 #    The game distribution embeds an OpenJDK JRE in extracted/runtime/ (JAVA_VERSION="18.0.2.1").
@@ -45,8 +45,8 @@ $stagingRoot = Join-Path $workspace "release_staging"
 $stagingDir = Join-Path $stagingRoot "ArmiesOfGielinor"
 $extractedDir = Join-Path $workspace "extracted"
 
-# Primary Versioned Release (v1.0.28) — historical v1.0.1..v1.0.27 ZIPs are preserved in releases/archive/
-$releaseVersion = "v1.0.28"
+# Primary Versioned Release (v1.0) — historical v1.0.1..v1.0.28 ZIPs are preserved in releases/archive/
+$releaseVersion = "v1.0"
 $releasesDir = Join-Path $workspace "releases"
 $archiveDir = Join-Path $releasesDir "archive"
 $releaseZip = Join-Path $releasesDir "ArmiesOfGielinor_${releaseVersion}.zip"
@@ -197,9 +197,13 @@ if (Test-Path $archiveDir) {
     if (Test-Path $oldV1027Zip) {
         Copy-Item $oldV1027Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.27.zip") -Force
     }
-    Copy-Item $releaseZip (Join-Path $archiveDir "ArmiesOfGielinor_${releaseVersion}_Milestone_AssetLoadingFreezeFix.zip") -Force
+    $oldV1028Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.28.zip"
+    if (Test-Path $oldV1028Zip) {
+        Copy-Item $oldV1028Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.28.zip") -Force
+    }
+    Copy-Item $releaseZip (Join-Path $archiveDir "ArmiesOfGielinor_${releaseVersion}_GoldenMaster.zip") -Force
 }
-Copy-Item $releaseZip (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_Milestone_AssetLoadingFreezeFix.zip") -Force
+Copy-Item $releaseZip (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_GoldenMaster.zip") -Force
 Copy-Item (Join-Path $extractedDir "app\ArmiesOfGielinor.jar") (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_milestone.jar") -Force
 if (Test-Path $githubReleaseDir) {
     Copy-Item $releaseZip (Join-Path $githubReleaseDir "ArmiesOfGielinor_${releaseVersion}.zip") -Force

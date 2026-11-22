@@ -4,6 +4,17 @@ All notable changes to the standalone preservation release are documented in thi
 
 ---
 
+## [v1.0] – 2026-11-22 (Official Standalone Golden Master Release)
+
+### Standalone Preservation & Golden Master Consolidation
+- **Asset Loading & JS5 Dynamic Cache Streaming**: Integrated dynamic on-demand disk cache extraction in `AoGServer.java`, guaranteeing 100% of game archives (including Archive 17 Extra Data 43..56) are served without stalling or freezing. Bundled complete 27-index golden master cache for 100% portable play.
+- **Steam Multiplayer Integration**: Full support for Steam friend invites, automatic lobby transitions, P2P session recovery on connection timeouts, and isolated Heraldic Crests / Coats of Arms.
+- **Display & Resolution Engine**: Completely resolved the legacy 640x480 resolution reversion loop and eliminated destructive Canvas teardowns, ensuring crisp Fullscreen (Native) and Windowed play on modern displays.
+- **Battle Engine & Game Rules Parity**: 100% parity with original 2010 FunOrb mechanics including multi-unit move order persistence, combat round continuity, AI bot god variety, and anti-inactivity protection.
+- **Zero-Setup Java 18 Distribution**: Self-contained runtime verified to Java 18 bytecode limits (class major version <= 62.0).
+
+---
+
 ## [v1.0.28] – 2026-11-22 (Asset Loading 75% Freeze Fix & Dynamic JS5 Serving)
 
 ### Core Engine, Cache Streaming & Asset Loading Fixes

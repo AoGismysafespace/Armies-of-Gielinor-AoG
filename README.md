@@ -1,6 +1,6 @@
 # Armies of Gielinor — Standalone Steam Edition
 
-[![Release](https://img.shields.io/badge/Release-v1.0.27-gold.svg)](https://github.com/alterorb/armies-of-gielinor/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0-gold.svg)](https://github.com/AoGismysafespace/Armies-of-Gielinor-AoG/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2064--bit-blue.svg)](#requirements)
 [![Multiplayer](https://img.shields.io/badge/Multiplayer-Steam%20P2P%20Relay-brightgreen.svg)](#multiplayer-guide)
 [![Java](https://img.shields.io/badge/Java%20Runtime-OpenJDK%2018%20(Bundled)-orange.svg)](#architecture)
@@ -12,13 +12,14 @@ This Standalone Steam Edition integrates native 64-bit Windows packaging, Steamw
 
 ---
 
-## Current Status: Version 1.0.27 (Boot Display Freeze & Resolution Reversion Permanent Fix)
+## Current Status: Version 1.0 (Official Standalone Golden Master Release)
 
 > [!NOTE]
-> **Production Ready**: All core singleplayer campaigns and multiplayer battle loops operate with 100% parity to the original FunOrb design: lobby discovery, unit recruitment, unit movement, tactical combat duels, multi-unit action persistence, unit slaying, objective/VP win-condition triggers, and spectator map synchronization. Make sure everyone in your lobby (both the **Host** and joining **Steam friends**) is running **v1.0.27**.
+> **Production Ready**: All core singleplayer campaigns and multiplayer battle loops operate with 100% parity to the original FunOrb design: lobby discovery, unit recruitment, unit movement, tactical combat duels, multi-unit action persistence, unit slaying, objective/VP win-condition triggers, and spectator map synchronization. Make sure everyone in your lobby (both the **Host** and joining **Steam friends**) is running **v1.0**.
 
 ### Feature Highlights
-- **Boot Display Freeze & Resolution Reversion Permanent Fix (v1.0.27)**: Permanently resolved the issue where the display visually froze at "Loading extra data - 75%" on certain hardware or audio configurations while the game continued running underneath. Removed the destructive Canvas teardown signal (`tq.a`) from `DisplayManager` and neutralized the legacy 50ms polling loop in `StandaloneRunner.main` that misread FunOrb's initial 480p HUD state as a user request to downscale to 640x480, completely eliminating the resolution overwrite trap in `player.properties`.
+- **Asset Loading 75% Freeze Elimination & Dynamic Cache Fallback (v1.0)**: Added dynamic on-demand cache extraction to `AoGServer.java`, guaranteeing 100% of game archives (including Archive 17 Extra Data files 43..56) are served cleanly to the game client over JS5. Bundled the complete 27-index golden master cache directly inside the release, providing a 100% self-contained portable game on any drive or directory.
+- **Boot Display Freeze & Resolution Reversion Permanent Fix**: Permanently resolved the issue where the display visually froze at "Loading extra data - 75%" on certain hardware or audio configurations while the game continued running underneath. Removed the destructive Canvas teardown signal (`tq.a`) from `DisplayManager` and neutralized the legacy 50ms polling loop in `StandaloneRunner.main` that misread FunOrb's initial 480p HUD state as a user request to downscale to 640x480, completely eliminating the resolution overwrite trap in `player.properties`.
 - **Steam Invite Stability & Black-Screen Crash Elimination (v1.0.26)**: Eliminated the fatal black-screen crash (`error_game_crash`) during Steam friend joins by neutralizing a rogue 3-second background watchdog in `StandaloneRunner.main`, synchronizing loading modal dismissals with the applet thread, and adding defensive null guards to the widget traversal iterator (`bb.class`). Also added automatic Steam P2P session recycling on handshake timeout (`SteamManager$4`), ensuring rock-solid lobby joins without process hangs.
 - **Steam Invitation Lobby & Room Auto-Join (v1.0.25)**: Resolved an issue where accepting a Steam invitation from a friend while sitting on the Main Menu did not place the player into the host's lobby room. The launcher now smoothly executes the transition from the title screen into the multiplayer lobby, and `AoGServer` automatically seats joining remote friends straight into the host's room with zero manual clicks required.
 - **Online Multiplayer God Selection & Coat of Arms Fix (v1.0.24)**: Removed unintended AI bot randomization from `AoGBattleBridge.startMatch()` so Steam friends choose their own 3 Gods freely at match start instead of getting random gods assigned. Added `CoatManager` reflection parity for loading and auto-saving Coats of Arms in `player.properties`, automatic 12-byte heraldry delivery in Steam P2P `OP_OPEN` handshakes, and strict `AoGServer` host-vs-guest Coat of Arms isolation so every player displays their own authentic heraldry across portals, fortress flags, and turn banners.
@@ -132,15 +133,8 @@ Included in the root of the game and this repository is [`Manual.pdf`](Manual.pd
 ├── CONTRIBUTING.md           # Developer guidelines & bytecode rules
 ├── .gitignore                # Git ignore configuration
 ├── release/
-│   ├── ArmiesOfGielinor_v1.0.11.zip # Latest complete standalone release archive (recommended)
-│   ├── ArmiesOfGielinor_v1.0.9.zip  # Archived v1.0.9 release
-│   ├── ArmiesOfGielinor_v1.0.8.zip  # Archived v1.0.8 release
-│   ├── ArmiesOfGielinor_v1.0.7.zip  # Archived v1.0.7 release
-│   ├── ArmiesOfGielinor_v1.0.6.zip  # Archived v1.0.6 release
-│   ├── RELEASE_NOTES_v1.0.11.md     # GitHub Releases markdown notes for v1.0.11
-│   ├── RELEASE_NOTES_v1.0.9.md      # Archived v1.0.9 release notes
-│   ├── RELEASE_NOTES_v1.0.8.md      # Archived v1.0.8 release notes
-│   └── RELEASE_NOTES_v1.0.6.md      # Archived v1.0.6 release notes
+│   ├── ArmiesOfGielinor_v1.0.zip   # Official standalone golden master release package
+│   └── RELEASE_NOTES_v1.0.md       # GitHub Releases markdown notes for v1.0
 ├── manual/
 │   ├── manual.html           # Raw HTML manual source with embedded vector schematics
 │   ├── build_manual.ps1      # Edge headless PDF compiler script
