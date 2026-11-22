@@ -38,8 +38,19 @@
  *    pd                | PackedCoordinateMath             | Helper for packing relative delta offsets (dX, dY)
  *    ha.Gb             | GameTurnRound                    | Match round counter; synchronized to clients via Packet 76
  *    ha.gb             | ActivePlayerSlot                 | Current active turn player slot (0..W-1)
- *    Packet 73         | ClientTurnReady                  | Client -> Server: Signals turn animation countdown finished
+ *    ha.e              | EliminatedPlayersBitmask         | Bitmask ((1 << slot)) of authoritatively eliminated commanders
+ *    ag.D              | CombatStrikeBattleId             | Non-zero battle ticket (1..255) paired across ic.d / ic.e via ic.db
+ *    ic.db             | ActiveClientModalBattleId        | Asserts 0 on ic.d(id,4) entry and matches id on ic.e(id,-56) exit
+ *    ic.Q              | ModalCombatEventQueueLock        | Holds queued kc (Packet 67) in ha.l until ag finishes animating
+ *    jd.db / jd.k      | QueuedMultiTurnWaypoint          | Stored unit path; in ic.b(4,123), dead 'if (unit.s)' check flushes
+ *                      |                                  | [Move+Attack] + [0x40 EndTurn] in a single network frame
+ *    Packet 73         | ClientTurnReady / CombatDone     | subOp==0: Turn banner finished; subOp>0: Combat battleId finished
  *    Packet 76         | ServerTurnUnpauseSync            | Server -> Client: Broadcasts acknowledged turn (Vb = Gb) & unpauses spectator banner
+ *    au.pc[0..5]       | MultiplayerLobbyOptions          | 0:TurnTime(0..6), 1:MapSize(0..3), 2:GameLength(0..3),
+ *                      | (pf.a, bv.A={7,4,4,4,2,5},       | 3:MapTheme(0..3 -> ns.A[0..3]), 4:GameType(0=FFA,1=Team),
+ *                      |  am.B={2,0,0,0,0,0})             | 5:TrinketLimit(0..4 -> lf.i={0,25,75,150,0})
+ *    Packet 64 byte[1] | ClientLaunchBitflags (n12)       | ArmiesOfGielinor.java:252-255: bit0=isRated, bit1=isTeamMatch,
+ *                      |                                  | bits2..4=trinketLimitIdx (0..4), bit6=ha.L (gods disabled)
  *    --------------------------------------------------------------------------------------------------
  *
  * 3. EVENT LIFECYCLE, COMBAT CASCADE & DISCONNECT MITIGATION:
@@ -59,6 +70,29 @@
  *    To prevent this, 'combatSlainTiles' tracks tiles of units whose deaths are already signaled by 'ag',
  *    suppressing the redundant network packet while still executing 'hp.a(serverHa)' to authoritatively
  *    update the server board state.
+ *
+ * 4. POST-COMBAT TURN RETENTION & PROTOCOL COLLISION PROTECTION (v1.0.8):
+ *    - Non-Zero Combat Ticket ('nextBattleId' 1..255): Offline 'ns.java:186' constructs 'ag' with 'D = 0'.
+ *      Assigning a monotonically cycling 1..255 'battleId' in 'serializeEvent' ensures 'ic.e(battleId, -56)'
+ *      emits Client Opcode 73 with 'subOp == battleId > 0', never colliding with Turn Banner Ready ('subOp == 0')
+ *      while strictly honoring the 'ic.db' pairing assertion in 'ic.d' / 'ic.e'.
+ *    - Pending-Combat Premature End-Turn Suppression ('combatResolutionPending'): While 'ag' is animating on
+ *      the active client, all UI buttons including End Turn are locked ('ic.Q == true', 'ic.a(true) == false').
+ *      Any 'Opcode 65 [64]' arriving from an authoritatively alive player BEFORE 'Opcode 73 [battleId > 0]'
+ *      (within 'COMBAT_PENDING_GUARD_TIMEOUT_MS') is guaranteed to be an automated premature packet (such as
+ *      the 'ic.b' queued multi-turn waypoint race or a client-side 'ha.e' mismatch) and is safely dropped.
+ *    - 3P/4P Self-Elimination Turn Progression: If an active commander in a 3P/4P match loses their final
+ *      portal-capable unit in counterattack ('ag.N == true') while another duel continues, the server cleanly
+ *      advances 'ha.gb' to the next surviving commander via 'advanceTurnInternal'.
+ *
+ * 5. MULTIPLAYER HUMAN GOD SELECTION & HERALDRY PRESERVATION (v1.0.24):
+ *    - Online multiplayer rooms only contain connected human peers (no AI bot slots in 'AoGBattleBridge').
+ *    - Previously calling 'GodManager.randomizeBotGods' and 'CoatManager.randomizeBotCoats' inside
+ *      'startMatch' pre-assigned 3 random gods and random bot coats to slots >= 1, causing Server Packet 77
+ *      ('ha.a' -> 'ha.b') to set 'Cb = true, D = 3' (skipping the God Selection Wheel) on Steam Friends.
+ *    - Now all human slots retain 'c[slot] = {-1, -1, -1}' ('Cb = false, D = 0') so every peer chooses
+ *      their own pantheon, and each slot's 12-byte wire Coat of Arms is decoded directly into a fresh 'ln'
+ *      instance via 'decodePlayerCoat' (never aliasing static 'ah.a' or leaking host heraldry to guests).
  * ====================================================================================================
  */
 import java.io.ByteArrayOutputStream;
@@ -94,10 +128,31 @@ implements BattleEngine {
     private static final Field KF_ORIG_Y = AoGBattleBridge.getField(kf.class, "y");
     private static final Field KF_STRENGTH = AoGBattleBridge.getField(kf.class, "z");
     private static final Field KF_OWNER = AoGBattleBridge.getField(kf.class, "C");
+    /**
+     * Safety ceiling (in milliseconds) for the pending-combat premature End-Turn guard.
+     * Standard combat strike animations ('ag') run for ~1.2s–2.8s (60–140 ticks at 50Hz) and immediately
+     * clear 'combatResolutionPending' via Client Opcode 73 ('subOp == battleId > 0'). Expiring the guard
+     * automatically after 4.5s guarantees that even an anomalous dropped packet can never permanently
+     * block a human commander from clicking End Turn.
+     */
+    private static final long COMBAT_PENDING_GUARD_TIMEOUT_MS = 4500L;
+
     private ha serverHa;
     private int turnTicks = 3000;
     private int lastEliminatedMask = 0;
     private boolean matchEnded = false;
+    /**
+     * Monotonically cycling non-zero combat strike identifier (1..255) written into byte 9 ('ag.D')
+     * of serialized Packet 68 combat strike payloads so 'ic.e(battleId, -56)' never emits 'subOp == 0'.
+     */
+    private int nextBattleId = 1;
+    /**
+     * True while at least one serialized combat strike ('ag') has been dispatched during the current turn
+     * and the active client has not yet reported animation completion via Opcode 73 ('notifyCombatCompleted').
+     */
+    private boolean combatResolutionPending = false;
+    private int pendingBattleId = 0;
+    private long combatDispatchedAtMs = 0L;
     private final Random rng = new Random();
     /**
      * Set of tile coordinates (packed as (x | (y << 16))) where a unit was slain as the direct result
@@ -227,17 +282,43 @@ implements BattleEngine {
 
     @Override
     public synchronized BattleEngine.MatchLaunchData startMatch(String[] stringArray, byte[] byArray, int n2, boolean bl2) {
+        return this.startMatch(stringArray, byArray, n2, bl2, null);
+    }
+
+    /**
+     * Launches an authoritative multiplayer battle with per-player custom Coats of Arms.
+     * Preserves human God Selection Wheel for all slots ('c[slot] = {-1, -1, -1}') and decodes
+     * each peer's 12-byte wire Coat of Arms payload into its own isolated 'ln' instance.
+     */
+    @Override
+    public synchronized BattleEngine.MatchLaunchData startMatch(String[] stringArray, byte[] byArray, int n2, boolean bl2, byte[][] playerCoats) {
         int n3;
         int n4 = stringArray.length;
         byte[] byArray2 = byArray != null && byArray.length >= 6 ? byArray : this.getDefaultRoomOptions();
-        int n5 = AoGBattleBridge.clamp(byArray2[0] & 0xFF, 0, 4);
+
+        /*
+         * Decode Multiplayer Lobby Room Options (ArmiesOfGielinor.java:2290, pf.a, bv.A={7,4,4,4,2,5}, ku.L):
+         *   - Note: Unlike Singleplayer Skirmish, Multiplayer Lobby does NOT place a "Random" entry at index 0
+         *     of the map theme array; index 0 is Misthalin directly, and ew.e.i (ns.A) only contains 4 themes (0..3).
+         *     Previously treating 0 as random over 0..5 crashed ~33.3% of default launches in ha.l(0,0) when 4 or 5 rolled,
+         *     and shifted non-zero theme selections by -1.
+         */
+        // Option 0: Turn time (0..6 -> 240s, 180s, 150s, 120s, 90s, 60s, 30s in ce.O)
+        int n5 = AoGBattleBridge.clamp(byArray2[0] & 0xFF, 0, 6);
+        // Option 1: Map size (0..3 -> Small, Medium, Large, Epic in ha.cb; ha.<init> uses rn.a for Epic on 4+ players)
         int n6 = AoGBattleBridge.clamp(byArray2[1] & 0xFF, 0, 3);
-        int n7 = AoGBattleBridge.clamp(byArray2[2] & 0xFF, 0, 1);
-        int n8 = byArray2[3] & 0xFF;
-        int n9 = n8 == 0 ? this.rng.nextInt(6) : AoGBattleBridge.clamp(n8 - 1, 0, 5);
-        int n10 = byArray2.length > 4 ? byArray2[4] & 0xFF : 0;
-        int n11 = n10 == 0 && n2 == 0 ? 4 : AoGBattleBridge.clamp(n10, 0, 4);
-        boolean bl3 = bl2 && n4 > 2 && n4 % 2 == 0;
+        // Option 2: Game length (0..3 -> Regular, Double, Triple, Quadruple in ha.vb; score threshold multiplier = 1 + vb)
+        int n8 = AoGBattleBridge.clamp(byArray2[2] & 0xFF, 0, 3);
+        // Option 3: Map theme (0..3 -> Misthalin, Kharidian Desert, Frozen Wastes, Hallowvale Swamps in ha.hb / ns.A[0..3])
+        int n9 = AoGBattleBridge.clamp(byArray2[3] & 0xFF, 0, 3);
+        // Option 4: Game Type (0 = Free For All, 1 = Team Game in ha.wb; team allocation in ha.<init> requires even count > 2)
+        boolean blTeamOption = bl2 || (byArray2.length > 4 && (byArray2[4] & 0xFF) == 1);
+        boolean bl3 = blTeamOption && n4 > 2 && n4 % 2 == 0;
+        // Option 5: Trinket Limit (0..4 -> Off, 25, 75, 150, No limit in ha.Q / lf.i)
+        int n11 = byArray2.length > 5 ? AoGBattleBridge.clamp(byArray2[5] & 0xFF, 0, 4) : 0;
+        // Keep 3-God Pantheon selection bar enabled (ha.L = false when var14_14 == 0; previously Game Length was passed here!)
+        int n7 = 0;
+
         int[][] nArray = new int[n4][7];
         int[][] nArray2 = new int[n4][5];
         for (n3 = 0; n3 < n4; ++n3) {
@@ -245,11 +326,23 @@ implements BattleEngine {
             Arrays.fill(nArray[n3], 1, 7, 2047);
             Arrays.fill(nArray2[n3], -1);
         }
-        this.serverHa = new ha(n5, stringArray, -1, nArray, -1, true, false, n6, 1, n9, bl3, nArray2, n11, n7, 0, null);
+        // Pass n8 (Game Length 0..3) to var9_9 (ha.vb) and n7=0 to var14_14 (ha.L)
+        this.serverHa = new ha(n5, stringArray, -1, nArray, -1, true, false, n6, n8, n9, bl3, nArray2, n11, n7, 0, null);
         this.serverHa.sb = -1;
+        // Assign each human peer's custom Coat of Arms into its own isolated 'ln' instance.
+        // Leave serverHa.c[*][*] as {-1, -1, -1} (never calling AI randomizers) so Packet 77 unpacks
+        // Cb == false and D == 0 for every human player, ensuring everyone sees the God Selection Wheel.
         this.serverHa.T = new ln[n4];
         for (n3 = 0; n3 < n4; ++n3) {
-            this.serverHa.T[n3] = ah.a != null ? ah.a : new ln();
+            if (playerCoats != null && n3 < playerCoats.length && playerCoats[n3] != null && playerCoats[n3].length >= 12) {
+                this.serverHa.T[n3] = AoGBattleBridge.decodePlayerCoat(playerCoats[n3]);
+            } else if (n3 == 0 && ah.a != null && ah.a.a != null && ah.a.b != null) {
+                // Fallback for Host only (slot 0) when server coat wasn't explicitly supplied
+                this.serverHa.T[n3] = new ln((int[])ah.a.a.clone(), (int[])ah.a.b.clone());
+            } else {
+                // Guests without a supplied coat default cleanly to a blank coat, never host's ah.a
+                this.serverHa.T[n3] = new ln();
+            }
         }
         this.turnTicks = 3000;
         try {
@@ -262,9 +355,13 @@ implements BattleEngine {
         }
         this.lastEliminatedMask = this.serverHa.e;
         this.matchEnded = false;
+        this.nextBattleId = 1;
+        this.clearCombatPendingState();
         this.serverHa.a(true, 0, 0);
         this.drainAndApplyEventsOnly();
-        int n12 = (bl3 ? 1 : 0) | (n11 & 7) << 2 | (n7 & 1) << 6;
+        // Pack Packet 64 byte[1] to match client decoder (ArmiesOfGielinor.java:252-255):
+        // bit 0 (1) = rated (0), bit 1 (2) = team match (bl3), bits 2..4 = trinketLimitIdx (n11), bit 6 (64) = ha.L (0)
+        int n12 = (bl3 ? 2 : 0) | (n11 & 7) << 2 | (n7 & 1) << 6;
         byte[][] byArrayArray = new byte[n4][];
         byte[][] byArrayArray2 = new byte[n4][];
         for (int i2 = 0; i2 < n4; ++i2) {
@@ -326,18 +423,34 @@ implements BattleEngine {
         }
         try {
             if (byArray.length == 1 && n3 == 64) {
+                // Authoritative Pending-Combat End-Turn Guard:
+                // While a combat strike ('ag') is animating on the active client, all UI buttons including
+                // End Turn are locked ('ic.Q == true', 'ic.a(true) == false') until 'ic.e(battleId, -56)'
+                // transmits Opcode 73 (battleId > 0). Therefore, any 'Opcode 65 [64]' arriving from an
+                // authoritatively alive player BEFORE combat completion is a premature automated flush
+                // (e.g., queued multi-turn waypoint race in 'ic.b(4, 123)' or a client-side 'ha.e' mismatch)
+                // and must be suppressed so the commander retains their turn and remaining unmoved units.
+                if ((this.serverHa.e & (1 << n2)) == 0 && this.isCombatResolutionCurrentlyPending()) {
+                    System.out.printf(
+                            "[AoGBattleBridge] Suppressed premature End Turn [64] from alive player %d while combat resolution (battleId=%d) is still pending.%n",
+                            n2, this.pendingBattleId);
+                    return actionResult;
+                }
                 this.advanceTurnInternal(actionResult);
                 return actionResult;
             }
             if (byArray.length == 4 && n3 == 32) {
+                this.clearCombatPendingState();
                 int n7 = byArray[1] & 0xFF;
                 int n8 = byArray[2] & 0xFF;
                 int n9 = byArray[3] & 0xFF;
                 this.executeCommand(new hw(n2, n8, n9, n7), actionResult);
                 this.checkEliminationsAndVictory(actionResult);
+                this.advanceTurnIfActivePlayerSelfEliminated(actionResult);
                 return actionResult;
             }
             if ((n3 & 0xE0) == 96) {
+                this.clearCombatPendingState();
                 if (byArray.length == 3 || byArray.length == 4) {
                     int n10 = byArray[1] & 0xFF;
                     int n11 = byArray[2] & 0xFF;
@@ -351,9 +464,11 @@ implements BattleEngine {
                     this.executeCommand(new ee(n2, n13, n14, new am(vh2, n2)), actionResult);
                 }
                 this.checkEliminationsAndVictory(actionResult);
+                this.advanceTurnIfActivePlayerSelfEliminated(actionResult);
                 return actionResult;
             }
             if (n3 == 160 && byArray.length >= 4) {
+                this.clearCombatPendingState();
                 byte by = byArray[1];
                 vh vh3 = new vh(byArray);
                 vh3.q = 2;
@@ -367,13 +482,16 @@ implements BattleEngine {
                     }
                 }
                 this.checkEliminationsAndVictory(actionResult);
+                this.advanceTurnIfActivePlayerSelfEliminated(actionResult);
                 return actionResult;
             }
             if ((n3 & 0xE0) == 0 && byArray.length >= 6) {
+                this.clearCombatPendingState();
                 vh vh4 = new vh(byArray);
                 vh4.q = 0;
                 this.executeCommand(new am(vh4, n2), actionResult);
                 this.checkEliminationsAndVictory(actionResult);
+                this.advanceTurnIfActivePlayerSelfEliminated(actionResult);
                 return actionResult;
             }
         }
@@ -438,6 +556,56 @@ implements BattleEngine {
     @Override
     public synchronized int getActivePlayer() {
         return this.serverHa != null ? this.serverHa.gb : 0;
+    }
+
+    /**
+     * Records that the active client has completed rendering combat strike animation 'battleId'
+     * via Client Opcode 73 ('ic.e(battleId, -56)'), unlocking subsequent manual End Turn requests.
+     */
+    @Override
+    public synchronized void notifyCombatCompleted(int playerIdx, int battleId) {
+        if (this.serverHa == null || this.matchEnded || battleId <= 0) {
+            return;
+        }
+        if (playerIdx == this.serverHa.gb) {
+            if (!this.combatResolutionPending || this.pendingBattleId == 0 || this.pendingBattleId == battleId) {
+                this.clearCombatPendingState();
+            }
+        }
+    }
+
+    private void clearCombatPendingState() {
+        this.combatResolutionPending = false;
+        this.pendingBattleId = 0;
+        this.combatDispatchedAtMs = 0L;
+    }
+
+    private boolean isCombatResolutionCurrentlyPending() {
+        if (!this.combatResolutionPending) {
+            return false;
+        }
+        long elapsedMs = System.currentTimeMillis() - this.combatDispatchedAtMs;
+        if (elapsedMs < 0L || elapsedMs >= COMBAT_PENDING_GUARD_TIMEOUT_MS) {
+            this.clearCombatPendingState();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * In 3-player / 4-player matches where at least two opposing teams remain alive ('!matchEnded'),
+     * if the active player ('serverHa.gb') was just authoritatively eliminated during their own turn
+     * (e.g., losing their final portal-capable Barbarian/Portal Mage to counterattack 'ag.N == true'),
+     * immediately emit 'Packet 67' via 'advanceTurnInternal' (matching 'handleSurrender') so turn order
+     * progresses cleanly after the combat animation finishes rather than stalling on an eliminated slot.
+     */
+    private void advanceTurnIfActivePlayerSelfEliminated(BattleEngine.ActionResult actionResult) {
+        if (this.serverHa != null
+                && !this.matchEnded
+                && actionResult.packet67 == null
+                && (this.serverHa.e & (1 << this.serverHa.gb)) != 0) {
+            this.advanceTurnInternal(actionResult);
+        }
     }
 
     private oj popEvent() {
@@ -524,6 +692,7 @@ implements BattleEngine {
     private void advanceTurnInternal(BattleEngine.ActionResult actionResult) {
         oj oj2;
         int n2;
+        this.clearCombatPendingState();
         int n3 = this.serverHa.W;
         int n4 = this.serverHa.gb;
         for (n2 = 0; n2 < n3 && (this.serverHa.e & 1 << (n4 = (n4 + 1) % n3)) != 0; ++n2) {
@@ -727,6 +896,13 @@ implements BattleEngine {
                 boolean bl2 = AoGBattleBridge.getBool(AG_DEF_DEPLOYED, ag2);
                 int n11 = 0x60 | (ag2.N ? 1 : 0) | (ag2.M ? 2 : 0);
                 int n12 = n9 & 7 | (n10 & 7) << 4 | (ag2.J ? 8 : 0) | (bl2 ? 128 : 0);
+                // Assign a non-zero cycling battleId (1..255) instead of offline 'ag2.D' (0).
+                // On clients, Packet 68 populates 'ag.D = battleId', which pairs cleanly across
+                // 'ic.d(ag.D, 4)' (sets 'ic.db = battleId') and 'ic.e(ag.D, -56)' (verifies 'ic.db == battleId',
+                // resets 'ic.db = 0', and sends Client Opcode 73 with 'subOp == battleId > 0' so combat
+                // completion never collides with Turn Banner Ready 'subOp == 0').
+                int battleId = this.nextBattleId;
+                this.nextBattleId = (this.nextBattleId % 255) + 1;
                 vh2.b(1, n11);
                 vh2.b(1, n8);
                 vh2.b(1, ag2.Q);
@@ -735,7 +911,10 @@ implements BattleEngine {
                 vh2.b(1, ag2.K);
                 vh2.b(1, ag2.R);
                 vh2.b(1, n12);
-                vh2.b(1, ag2.D);
+                vh2.b(1, battleId);
+                this.combatResolutionPending = true;
+                this.pendingBattleId = battleId;
+                this.combatDispatchedAtMs = System.currentTimeMillis();
             } else if (oj2 instanceof qq) {
                 qq qq2 = (qq)oj2;
                 int n13 = AoGBattleBridge.getInt(QQ_SUBTYPE, qq2);
@@ -818,6 +997,32 @@ implements BattleEngine {
             System.err.println("[AoGBattleBridge] Failed serializing oj event " + oj2.getClass().getName() + ": " + String.valueOf(throwable));
             return null;
         }
+    }
+
+    /**
+     * Decodes a 12-byte wire Coat of Arms payload ([shape0, color0, ..., shape5, color5]) into a fresh 'ln'
+     * instance with bounds validation. Wire shape byte 255 represents optional '-1' ("None"), whereas all-zero
+     * bytes (0,0,0,0,0,0:0,0,0,0,0,0) represent a valid all-index-0 Coat Editor choice and are preserved intact.
+     */
+    private static ln decodePlayerCoat(byte[] coatBytes) {
+        int[] shapes = new int[6];
+        int[] colors = new int[6];
+        for (int i = 0; i < 6; ++i) {
+            int rawShape = coatBytes[i * 2] & 0xFF;
+            int shape = rawShape == 255 ? -1 : rawShape;
+            // Layers 0 (shield base) and 3 (banner) are mandatory per od.c; clamp any invalid negative to 0
+            if (i == 0 || i == 3) {
+                if (shape < 0) {
+                    shape = 0;
+                }
+            } else if (shape < -1) {
+                shape = -1;
+            }
+            shapes[i] = shape;
+            // Validate palette color index against the 32-entry palette bd.q to prevent AIOOBE during rendering
+            colors[i] = AoGBattleBridge.clamp(coatBytes[i * 2 + 1] & 0xFF, 0, 31);
+        }
+        return new ln(shapes, colors);
     }
 
     private static int clamp(int n2, int n3, int n4) {

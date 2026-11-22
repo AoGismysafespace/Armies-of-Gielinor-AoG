@@ -1,0 +1,45 @@
+# Operating System Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.temp
+.DS_Store
+
+# Java Build Artifacts
+*.class
+*.jar.bak
+*.class.bak
+target/
+bin/
+build/
+.gradle/
+
+# IDE and Editor Files
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+*.workspace
+
+# Game Runtime & Cache Stores
+.armiesofgielinor/
+*.dat2
+*.idx*
+main_file_cache.*
+
+# Binary Distribution Packages (Hosted on GitHub Releases)
+*.zip
+release/*.zip
+releases/*.zip
+tools/*.jar
+tools/*.lnk
+
+# Local Test Logs & Dumps
+*.log
+*.dmp
+hs_err_pid*
+test_environment/*.class
+release_staging/

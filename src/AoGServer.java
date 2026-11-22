@@ -1,5 +1,69 @@
-/*
- * Decompiled with CFR 0.152.
+/**
+ * ====================================================================================================
+ * Armies of Gielinor — Standalone Multiplayer TCP & Steam P2P Host Server
+ * Component: AoGServer.java (package net.alterorb.server)
+ *
+ * 1. PURPOSE & ARCHITECTURAL CONTEXT:
+ *    Implements the authoritative Jagex/FunOrb login handshake, JS5 cache streaming fallback,
+ *    custom-game lobby room management, Steamworks P2P relay integration, and live multiplayer
+ *    battle packet coordination across connected clients.
+ *    To keep the 2009 Jagex client classes ('ic', 'ha', 'ag', 'ArmiesOfGielinor') 100% unmodified
+ *    and rock-solid, all turn-timer synchronization, spectator turn-banner unpausing, and modal
+ *    combat animation handshakes are coordinated authoritatively inside this server.
+ *
+ * 2. ROSETTA STONE / FUNORB MULTIPLAYER TIMING & PROTOCOL MAPPINGS:
+ *    --------------------------------------------------------------------------------------------------
+ *    Obfuscated / Wire Symbol | Real / Architectural Meaning        | Valid Values & Side Effects
+ *    --------------------------------------------------------------------------------------------------
+ *    ha.Gb                    | MatchTurnRound                      | 0-based turn counter; Turn 0 skips banner
+ *    ha.gb                    | ActivePlayerSlot                    | 0..W-1 slot index of active commander
+ *    ic.q                     | LocalClientSlot                     | Local player's slot index in match
+ *    ic.j                     | StoneTurnBannerTimer                | Starts at 100 on Packet 67; spectators pause
+ *                             |                                     | at 50 while 'ic.Vb < ha.Gb' (Turns >= 1)
+ *    ic.Vb                    | ServerAcknowledgedTurnRound         | Updated by Packet 76 bytes 1..2; unfreezes banner
+ *    ic.Tb                    | TurnCountdownPausedFlag             | Set true on Opcode 74; cleared false by Packet 76[0]==0
+ *    ic.p                     | RemainingTurnCountdownTicks         | When 'ic.p == 0' while '!ic.Tb', calls 'ic.i(0)' -> [64]
+ *    Client Opcode 74         | CombatAnimationModalPauseStart      | Sent by active client in 'ic.d(battleId, 4)'
+ *    Client Opcode 73         | subOp==0: TurnBannerReady           | Sent by active client in 'ic.j(109)'
+ *                             | subOp>0 : CombatAnimationCompleted  | Sent by active client in 'ic.e(battleId, -56)'
+ *    Client Opcode 9          | EnterMultiplayerLobby               | Sent by client to enter lobby screen (-4)
+ *    Server Packet 14         | EnterLobbyScreen (0 bytes)          | Instructs client to switch to Lobby Screen (-4)
+ *    Server Packet 76         | [0, turnHi, turnLo] (3 bytes)       | Unpauses spectator banner ('Vb=turn') AND clears 'Tb=false'
+ *    Lobby SubOp 4            | JoinStagingRoom                     | Instructs client to switch to Room Screen (-2)
+ *    Lobby SubOp 18           | AddRoomMember                       | Adds player to room roster display
+ *    --------------------------------------------------------------------------------------------------
+ *
+ * 3. MID-COMBAT TIMER CLOBBER & TURN-0 GUARD (v1.0.8):
+ *    - Turn 0 ('Gb == 0') skips the stone turn banner ('ArmiesOfGielinor.java:342') and never freezes
+ *      spectators ('Vb < Gb' is '0 < 0 == false' at 'ic.java:2879'), so no 2.5s Packet 76 fallback is
+ *      scheduled on Turn 0.
+ *    - Whenever the active player enters a combat animation ('Opcode 74' -> 'activeCombatPause = true'),
+ *      any pending Packet 76 broadcast is deferred until combat finishes ('Opcode 73, subOp > 0'),
+ *      guaranteeing Packet 76 never forces 'ic.Tb = false' mid-combat while still unfreezing spectator
+ *      banners reliably on all Turns >= 1.
+ *
+ * 4. ATOMIC MATCH LAUNCH GUARD (v1.0.23):
+ *    - 'handleStartMatchRequest' generates 'MatchLaunchData' via 'engine.startMatch(...)' BEFORE removing
+ *      the 'LobbyRoom' or clearing player lobby state ('currentRoom', 'inLobby'), ensuring any launch
+ *      exception cannot crash 'ClientHandler.run()' or sever the host's TCP socket.
+ *    - 'LobbyRoom.isTeams' stays synchronized with Lobby Option 4 ('options[4]': 0=FFA, 1=Team Game).
+ *
+ * 5. STEAM INVITATION LOBBY & ROOM AUTO-JOIN (v1.0.25):
+ *    - Automatically invokes 'handleEnterLobby(this)' for remote Steam guests (!this.isHostClient)
+ *      immediately upon successful login, eliminating the need for invited friends to manually click
+ *      "Join Lobby" in the menu.
+ *    - Features an idempotency guard in 'handleEnterLobby' so subsequent duplicate client Opcode 9
+ *      packets are safely ignored without kicking the player out of their active staging room.
+ *    - In 'createRoom', checks for any connected waiting lobby guests and auto-joins them into the newly
+ *      created room, ensuring instantaneous room placement regardless of whether the host or guest connects first.
+ *
+ * 6. DYNAMIC JS5 DISK CACHE STREAMING FALLBACK (v1.0.28):
+ *    - Automatically fulfills missing JS5 streaming requests (e.g. Archive 17 extra data files 43..56)
+ *      by reading sectors dynamically from local disk cache ('main_file_cache.dat2' & '.idx') via
+ *      'readArchiveFromDisk(index, archive)'.
+ *    - Caches streamed archives in 'JS5_ARCHIVES' memory map for instantaneous subsequent serving.
+ *    - Permanently resolves client startup hang at 'Asset Loading: 67% (Loading extra data - 75%)'.
+ * ====================================================================================================
  */
 package net.alterorb.server;
 
@@ -15,6 +79,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -62,6 +127,13 @@ public class AoGServer {
     private final List<ClientHandler> activeMatchPlayers = new ArrayList<ClientHandler>();
     private BattleEngine engine;
     private int lastUnpausedTurn = -1;
+    /**
+     * True while the active turn player is inside a modal combat animation lock (entered via Client
+     * Opcode 74 'ic.d(battleId, 4)' and exited via Client Opcode 73 'ic.e(battleId, -56)' with 'subOp > 0').
+     * While true, Packet 76 broadcasts are deferred so 'ArmiesOfGielinor.java:370' ('ic2.Tb = false')
+     * can never unpause the active player's turn countdown clock in the middle of a combat animation.
+     */
+    private boolean activeCombatPause = false;
     private String hostUsername = "Host";
     public static final Map<Integer, Map<Integer, int[]>> campaignProgress;
     public static volatile byte[] hostCoatOfArms;
@@ -114,6 +186,132 @@ public class AoGServer {
         } else {
             System.err.println("[AoGServer] WARNING: js5_cache.dat not found in resources or fallback paths!");
         }
+    }
+
+    /**
+     * Resolves the authoritative disk cache directory for JS5 asset extraction.
+     * Checks StandaloneRunner's resolved cache path, local portable game folder caches/,
+     * and user home directories in order of priority.
+     *
+     * @return Path to the 'armiesofgielinor' cache directory containing main_file_cache.dat2, or null
+     */
+    private static Path findDiskCacheDir() {
+        // Priority 1: StandaloneRunner resolved directory via reflection (if running inside launcher)
+        try {
+            Class<?> srClass = Class.forName("net.alterorb.launcher.StandaloneRunner");
+            java.lang.reflect.Method m = srClass.getMethod("resolveCacheDir");
+            Path p = (Path) m.invoke(null);
+            if (p != null) {
+                Path cand = p.resolve("armiesofgielinor");
+                if (Files.exists(cand.resolve("main_file_cache.dat2"))) {
+                    return cand;
+                }
+                if (Files.exists(p.resolve("main_file_cache.dat2"))) {
+                    return p;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // Priority 2: Candidates relative to current working directory and user home
+        Path[] candidates = new Path[]{
+            Paths.get("caches", "armiesofgielinor"),
+            Paths.get("..", "caches", "armiesofgielinor"),
+            Paths.get(System.getProperty("user.home"), ".armiesofgielinor", "caches", "armiesofgielinor"),
+            Paths.get(System.getProperty("user.home"), ".alterorb", "caches", "armiesofgielinor"),
+            Paths.get("cache", "armiesofgielinor"),
+            Paths.get("jar_extracted", "cache", "armiesofgielinor")
+        };
+        for (Path p : candidates) {
+            if (Files.exists(p.resolve("main_file_cache.dat2"))) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Dynamically extracts a binary archive from the local disk cache (main_file_cache.dat2 and .idx)
+     * when a client requests an asset not pre-loaded into memory (such as Archive 17 extra data files).
+     *
+     * Sector header format (8 bytes for archive <= 65535):
+     * - Bytes 0..1: Archive ID (2 bytes, big-endian)
+     * - Bytes 2..3: Part / Chunk Index (2 bytes, big-endian)
+     * - Bytes 4..6: Next Sector ID (3 bytes, big-endian)
+     * - Byte 7:     Index ID (1 byte)
+     * Followed by up to 512 bytes of chunk payload.
+     *
+     * @param index   The cache index (e.g. 17 for extra data, 15 for music, etc.)
+     * @param archive The specific archive / file within the index (e.g. 43..56)
+     * @return Raw archive bytes ready for JS5 transmission, or null if not found
+     */
+    public static byte[] readArchiveFromDisk(int index, int archive) {
+        Path cacheDir = findDiskCacheDir();
+        if (cacheDir == null) {
+            return null;
+        }
+        File idxFile = cacheDir.resolve("main_file_cache.idx" + index).toFile();
+        File datFile = cacheDir.resolve("main_file_cache.dat2").toFile();
+        if (!idxFile.exists() || !datFile.exists()) {
+            return null;
+        }
+
+        try (RandomAccessFile idxRaf = new RandomAccessFile(idxFile, "r");
+             RandomAccessFile datRaf = new RandomAccessFile(datFile, "r")) {
+
+            long idxOffset = (long) archive * 6L;
+            if (idxOffset + 6L > idxRaf.length()) {
+                return null;
+            }
+            idxRaf.seek(idxOffset);
+            byte[] header = new byte[6];
+            idxRaf.readFully(header);
+
+            int size = ((header[0] & 0xFF) << 16) | ((header[1] & 0xFF) << 8) | (header[2] & 0xFF);
+            int sector = ((header[3] & 0xFF) << 16) | ((header[4] & 0xFF) << 8) | (header[5] & 0xFF);
+            if (size <= 0 || sector <= 0) {
+                return null;
+            }
+
+            byte[] buffer = new byte[size];
+            int readBytes = 0;
+            int part = 0;
+            byte[] sectorBuffer = new byte[520];
+
+            while (readBytes < size && sector > 0) {
+                long datOffset = (long) sector * 520L;
+                if (datOffset + 8L > datRaf.length()) {
+                    break;
+                }
+                datRaf.seek(datOffset);
+                int chunkLen = Math.min(size - readBytes, 512);
+                int readHeader = datRaf.read(sectorBuffer, 0, 8 + chunkLen);
+                if (readHeader < 8 + chunkLen) {
+                    break;
+                }
+
+                int sFile = ((sectorBuffer[0] & 0xFF) << 8) | (sectorBuffer[1] & 0xFF);
+                int sPart = ((sectorBuffer[2] & 0xFF) << 8) | (sectorBuffer[3] & 0xFF);
+                int sNext = ((sectorBuffer[4] & 0xFF) << 16) | ((sectorBuffer[5] & 0xFF) << 8) | (sectorBuffer[6] & 0xFF);
+                int sIdx = sectorBuffer[7] & 0xFF;
+
+                if (sFile != archive || sPart != part || sIdx != index) {
+                    return null;
+                }
+
+                System.arraycopy(sectorBuffer, 8, buffer, readBytes, chunkLen);
+                readBytes += chunkLen;
+                sector = sNext;
+                part++;
+            }
+
+            if (readBytes == size) {
+                return buffer;
+            }
+        } catch (Exception e) {
+            // Silently fall through to return null
+        }
+        return null;
     }
 
     public AoGServer(int n) {
@@ -540,11 +738,16 @@ public class AoGServer {
     }
 
     synchronized void handleEnterLobby(ClientHandler clientHandler) {
+        // Idempotency guard: If client is already active in the lobby and placed in a staging room,
+        // ignore duplicate entry requests (e.g. if the client UI sends a redundant Opcode 9 later).
+        if (clientHandler.inLobby && clientHandler.currentRoom != null) {
+            return;
+        }
         if (clientHandler.currentRoom != null) {
             this.leaveRoom(clientHandler, clientHandler.currentRoom.roomId);
         }
         clientHandler.inLobby = true;
-        System.out.println("[AoGServer] Player " + clientHandler.username + " entered Multiplayer Lobby (Opcode 9).");
+        System.out.println("[AoGServer] Player " + clientHandler.username + " entered Multiplayer Lobby.");
         clientHandler.sendZeroBytePacket(14);
         this.syncLobbyStateToClient(clientHandler, true);
         this.syncFriendsToClient(clientHandler);
@@ -668,6 +871,8 @@ public class AoGServer {
                 if (byArray.length >= 3 + n8) {
                     System.arraycopy(byArray, 3, lobbyRoom.options, 0, n8);
                 }
+                // Sync team mode flag with Multiplayer Lobby Option 4 (Game Type: 0 = FFA, 1 = Team Game)
+                lobbyRoom.isTeams = lobbyRoom.options.length > 4 && (lobbyRoom.options[4] & 0xFF) == 1;
                 byte[] byArray3 = AoGServer.buildSubOp10CurrentRoomUpdate(lobbyRoom);
                 for (ClientHandler clientHandler2 : lobbyRoom.members) {
                     clientHandler2.sendLobbySubPacket(byArray3);
@@ -767,6 +972,13 @@ public class AoGServer {
         clientHandler.sendLobbySubPacket(AoGServer.buildSubOp4JoinStagingRoom(lobbyRoom));
         clientHandler.sendLobbySubPacket(AoGServer.buildSubOp18AddRoomMember(clientHandler));
         this.broadcastLobbyRoomUpdate(lobbyRoom);
+        // Auto-join any connected guests who are already in the lobby waiting for a room
+        for (ClientHandler guest : this.clients) {
+            if (guest != clientHandler && guest.connected && guest.inLobby && guest.currentRoom == null && lobbyRoom.members.size() < lobbyRoom.maxPlayers) {
+                System.out.println("[AoGServer] Auto-joining waiting lobby guest " + guest.username + " into newly created Room #" + n3);
+                this.joinRoom(guest, n3);
+            }
+        }
     }
 
     private void joinRoom(ClientHandler clientHandler, int n) {
@@ -851,11 +1063,31 @@ public class AoGServer {
         }
         ArrayList<ClientHandler> arrayList = new ArrayList<ClientHandler>(lobbyRoom.members);
         int n = arrayList.size();
-        Object[] objectArray = new String[n];
+        String[] objectArray = new String[n];
+        // Collect each player's 12-byte serialized Coat of Arms in lobby slot order
+        // so AoGBattleBridge populates serverHa.T[slot] from authoritative player data
+        // instead of leaving null/host slots or randomizing multiplayer identities.
+        byte[][] playerCoats = new byte[n][];
         for (int i = 0; i < n; ++i) {
-            objectArray[i] = ((ClientHandler)arrayList.get((int)i)).username;
+            ClientHandler member = arrayList.get(i);
+            objectArray[i] = member.username;
+            playerCoats[i] = member.coatOfArms != null ? (byte[])member.coatOfArms.clone() : null;
         }
         System.out.println("[AoGServer] Launching authoritative multiplayer battle for Room #" + lobbyRoom.roomId + ": " + Arrays.toString(objectArray));
+
+        // Atomic launch guard: Generate the authoritative battlefield & initial packets BEFORE removing the
+        // room or clearing player lobby flags. If startMatch() throws an exception, returning early preserves
+        // the room and keeps the host's TCP socket open instead of crashing ClientHandler.run().
+        BattleEngine.MatchLaunchData matchLaunchData;
+        try {
+            matchLaunchData = this.getEngine().startMatch(objectArray, lobbyRoom.options, lobbyRoom.gameType, lobbyRoom.isTeams, playerCoats);
+        }
+        catch (Throwable throwable) {
+            System.err.println("[AoGServer] Failed to start match for Room #" + lobbyRoom.roomId + ": " + String.valueOf(throwable));
+            throwable.printStackTrace();
+            return;
+        }
+
         this.rooms.remove(lobbyRoom.roomId);
         byte[] byArray = AoGServer.buildSubOp9RemoveRoom(lobbyRoom.roomId, 0);
         for (ClientHandler clientHandler2 : arrayList) {
@@ -872,7 +1104,6 @@ public class AoGServer {
         }
         this.activeMatchPlayers.clear();
         this.activeMatchPlayers.addAll(arrayList);
-        BattleEngine.MatchLaunchData matchLaunchData = this.getEngine().startMatch((String[])objectArray, lobbyRoom.options, lobbyRoom.gameType, lobbyRoom.isTeams);
         for (int i = 0; i < n; ++i) {
             ClientHandler clientHandler4 = (ClientHandler)arrayList.get(i);
             clientHandler4.sendVarShortPacket(64, matchLaunchData.playerPacket64[i]);
@@ -881,8 +1112,15 @@ public class AoGServer {
         }
         System.out.println("[AoGServer] Sent Packet 64 + Packet 77 + Packet 67 to all " + n + " match players!");
         this.lastUnpausedTurn = -1;
+        this.activeCombatPause = false;
         int initialTurn = this.getEngine().getCurrentTurn();
-        this.schedulePacket76Fallback(initialTurn);
+        // On Turn 0 (initialTurn == 0), ArmiesOfGielinor.java:342 skips the stone turn banner ('ic.j == 0')
+        // and spectators have Vb=0, Gb=0 ('Vb < Gb' is '0 < 0 == false' at ic.java:2879), so no spectator
+        // banner ever pauses on Turn 0. Skipping the 2.5s Packet 76 fallback on Turn 0 prevents Packet 76
+        // from firing mid-combat during an early Turn 0 engagement and clobbering 'ic.Tb = false'.
+        if (initialTurn > 0) {
+            this.schedulePacket76Fallback(initialTurn);
+        }
     }
 
     synchronized void handleBattleAction(ClientHandler clientHandler, byte[] byArray) {
@@ -894,14 +1132,36 @@ public class AoGServer {
         this.broadcastActionResult(actionResult);
     }
 
-    synchronized void handleTurnTimeout(ClientHandler clientHandler) {
+    /**
+     * Handles client combat animation pause notification (Opcode 74).
+     *
+     * Architectural Rationale:
+     *   Transmitted automatically by the active client via ic.d(battleId, 4) during combat
+     *   strike animation execution (ag.class). Informs the authoritative server that the
+     *   client has entered a modal combat animation lock and paused its local countdown timer
+     *   (Tb = true).
+     *   Crucially, this is NOT a turn timeout signal and MUST NOT advance the turn.
+     *   The active player retains full control of their turn and unmoved friendly units once
+     *   the animation sequence concludes.
+     *
+     * Rosetta Stone / Symbol Mappings:
+     *   - ag.class            : EventCombat (combat strike animation & damage resolution entity).
+     *   - ic.d(battleId, 4)   : Client modal pause entry point; sets ic.Tb = true, transmits Opcode 74.
+     *   - ic.e(battleId, -56) : Client modal pause exit point; sets ic.Tb = false, transmits Opcode 73.
+     *   - ic.i(0)             : True turn completion method; transmits Opcode 65 with payload [64].
+     *
+     * @param clientHandler The client entering the combat animation modal pause.
+     */
+    synchronized void handleCombatAnimationPause(ClientHandler clientHandler) {
         int n = clientHandler.matchPlayerIdx;
-        if (n < 0 || !this.activeMatchPlayers.contains(clientHandler)) {
+        if (n < 0 || !this.activeMatchPlayers.contains(clientHandler) || !this.getEngine().isMatchActive()) {
             return;
         }
-        System.out.println("[AoGServer] Turn timer expired (Opcode 74) from " + clientHandler.username + " - advancing turn.");
-        BattleEngine.ActionResult actionResult = this.getEngine().forceAdvanceTurn();
-        this.broadcastActionResult(actionResult);
+        if (n == this.getEngine().getActivePlayer()) {
+            this.activeCombatPause = true;
+        }
+        System.out.printf("[AoGServer] Client %s (idx=%d) started combat animation (Opcode 74) - turn timer paused (turn retained).\n",
+                clientHandler.username, n);
     }
 
     /**
@@ -954,7 +1214,16 @@ public class AoGServer {
             return;
         }
         int currentTurn = this.getEngine().getCurrentTurn();
-        if (targetTurn != currentTurn || this.lastUnpausedTurn == currentTurn) {
+        // Turn 0 never freezes spectator banners ('Vb < Gb' is '0 < 0 == false'), so only Turns >= 1 require Packet 76.
+        if (targetTurn <= 0 || targetTurn != currentTurn || this.lastUnpausedTurn == currentTurn) {
+            return;
+        }
+        // Defer Packet 76 if the active commander is currently inside a modal combat animation lock (Opcode 74);
+        // otherwise ArmiesOfGielinor.java:370 unconditionally sets 'ic.Tb = false' mid-combat! Once Opcode 73
+        // (subOp > 0) arrives at combat completion, handleClientTurnReady immediately flushes this pending unpause.
+        if (this.activeCombatPause) {
+            System.out.printf("[AoGServer] Deferring Packet 76 (turn=%d) while active player is in modal combat pause (Opcode 74).\n",
+                    currentTurn);
             return;
         }
         this.lastUnpausedTurn = currentTurn;
@@ -971,8 +1240,14 @@ public class AoGServer {
     }
 
     /**
-     * Handles client turn acknowledgment signal (Opcode 73).
-     * Transmitted automatically by the active client when its banner countdown reaches tick 0.
+     * Handles client turn acknowledgment & animation completion signal (Opcode 73).
+     *
+     * Protocol Semantics:
+     *   - subOp == 0: Turn change stone slab banner animation completed; active client ready for turn actions.
+     *                 Broadcasts Packet 76 to unpause spectator viewports and dismiss banner (active player only).
+     *   - subOp > 0 : Combat strike animation (battleId == subOp) completed on active client;
+     *                 clears server-side 'activeCombatPause', notifies BattleEngine ('notifyCombatCompleted'),
+     *                 and flushes any Turn >= 1 Packet 76 unpause that was deferred during combat.
      *
      * @param clientHandler The client sending Opcode 73.
      * @param payload       The 3-byte payload [subOpcode (1 byte), elapsedTicks (2 bytes)].
@@ -984,9 +1259,32 @@ public class AoGServer {
         }
         int currentTurn = this.getEngine().getCurrentTurn();
         int activePlayer = this.getEngine().getActivePlayer();
-        System.out.printf("[AoGServer] Client %s (idx=%d) signaled turn ready (Opcode 73) for turn=%d, activePlayer=%d\n",
-                clientHandler.username, n, currentTurn, activePlayer);
-        this.broadcastPacket76IfPending(currentTurn);
+        int subOp = (payload != null && payload.length > 0) ? (payload[0] & 0xFF) : 0;
+        int elapsedTicks = (payload != null && payload.length >= 3) ? (((payload[1] & 0xFF) << 8) | (payload[2] & 0xFF)) : 0;
+
+        if (subOp == 0) {
+            // Only the authoritative active turn player may trigger Turn Banner Ready ('ic.j(109)');
+            // non-active spectator Opcode 73 packets are ignored to prevent premature Packet 76 broadcasts.
+            if (n != activePlayer) {
+                System.out.printf("[AoGServer] Ignored non-active Opcode 73 (subOp=0) from %s (idx=%d, activePlayer=%d)\n",
+                        clientHandler.username, n, activePlayer);
+                return;
+            }
+            System.out.printf("[AoGServer] Client %s (idx=%d) signaled turn banner ready (Opcode 73) for turn=%d, activePlayer=%d, elapsed=%d\n",
+                    clientHandler.username, n, currentTurn, activePlayer, elapsedTicks);
+            this.broadcastPacket76IfPending(currentTurn);
+        } else {
+            System.out.printf("[AoGServer] Client %s (idx=%d) signaled combat animation completed (Opcode 73) for battleId=%d, elapsed=%d\n",
+                    clientHandler.username, n, subOp, elapsedTicks);
+            if (n == activePlayer) {
+                this.activeCombatPause = false;
+                this.getEngine().notifyCombatCompleted(n, subOp);
+                // If a Turn >= 1 spectator banner fallback fired while combat pause was active, flush it now:
+                if (currentTurn > 0 && this.lastUnpausedTurn != currentTurn) {
+                    this.broadcastPacket76IfPending(currentTurn);
+                }
+            }
+        }
     }
 
     synchronized void handleSurrenderRequest(ClientHandler clientHandler) {
@@ -996,6 +1294,9 @@ public class AoGServer {
         }
         System.out.println("[AoGServer] Player " + clientHandler.username + " (idx=" + n + ") surrendered (Opcode 67)!");
         if (this.getEngine().isMatchActive()) {
+            if (n == this.getEngine().getActivePlayer()) {
+                this.activeCombatPause = false;
+            }
             byte[] byArray = new byte[]{(byte)n};
             for (ClientHandler clientHandler2 : this.activeMatchPlayers) {
                 clientHandler2.sendFixedPacket(71, byArray);
@@ -1016,12 +1317,18 @@ public class AoGServer {
     private void handlePlayerMatchExit(ClientHandler clientHandler, boolean bl) {
         int n = clientHandler.matchPlayerIdx;
         if (n >= 0 && this.activeMatchPlayers.contains(clientHandler) && this.getEngine().isMatchActive()) {
+            if (n == this.getEngine().getActivePlayer()) {
+                this.activeCombatPause = false;
+            }
             byte[] byArray = new byte[]{(byte)n};
             for (ClientHandler object : this.activeMatchPlayers) {
                 if (object == clientHandler && bl) continue;
                 object.sendFixedPacket(71, byArray);
             }
             BattleEngine.ActionResult actionResult = this.getEngine().handleSurrender(n);
+            if (actionResult.packet67 != null || actionResult.packet69MatchEnd != null) {
+                this.activeCombatPause = false;
+            }
             for (ClientHandler clientHandler2 : this.activeMatchPlayers) {
                 if (clientHandler2 == clientHandler) continue;
                 this.sendActionResultTo(clientHandler2, actionResult);
@@ -1035,12 +1342,17 @@ public class AoGServer {
         if (actionResult == null) {
             return;
         }
+        if (actionResult.packet67 != null || actionResult.packet69MatchEnd != null) {
+            this.activeCombatPause = false;
+        }
         for (ClientHandler clientHandler : this.activeMatchPlayers) {
             this.sendActionResultTo(clientHandler, actionResult);
         }
         if (actionResult.packet67 != null && this.getEngine().isMatchActive()) {
             int newTurn = this.getEngine().getCurrentTurn();
-            this.schedulePacket76Fallback(newTurn);
+            if (newTurn > 0) {
+                this.schedulePacket76Fallback(newTurn);
+            }
         }
     }
 
@@ -1443,6 +1755,8 @@ public class AoGServer {
         private volatile LobbyRoom currentRoom = null;
         private volatile int matchPlayerIdx = -1;
         public byte[] coatOfArms = null;
+        /** True only for the genuine local host JVM player (never Steam P2P guests or duplicate names). */
+        private volatile boolean isHostClient = false;
 
         public ClientHandler(AoGServer aoGServer, Socket socket) {
             this.server = aoGServer;
@@ -1485,6 +1799,13 @@ public class AoGServer {
                             int n8 = this.in.readUnsignedByte();
                             long l = (long)n8 << 32 | (long)(n7 = this.in.readInt()) & 0xFFFFFFFFL;
                             byte[] byArray = JS5_ARCHIVES.get(l);
+                            if (byArray == null) {
+                                byArray = AoGServer.readArchiveFromDisk(n8, n7);
+                                if (byArray != null) {
+                                    JS5_ARCHIVES.put(l, byArray);
+                                    System.out.printf("[AoGServer] Dynamically served JS5 archive: (%d, %d) (%d bytes)\n", n8, n7, byArray.length);
+                                }
+                            }
                             if (byArray != null) {
                                 int n9;
                                 int n10 = byArray[0] & 0xFF;
@@ -1607,13 +1928,42 @@ public class AoGServer {
                     this.out.write(byArray6);
                     this.out.flush();
                 }
+                // Identify the genuine local host socket strictly (loopback, not arriving over Steam P2PTunnel,
+                // first host claim, and matching hostUsername) so Steam friends connecting first or even
+                // sharing a display name never inherit or overwrite hostCoatOfArms (fixing Bug 2B/2C).
+                boolean isLoopback = this.socket.getInetAddress() != null && this.socket.getInetAddress().isLoopbackAddress();
+                boolean hostAlreadyConnected = false;
+                for (ClientHandler existing : this.server.clients) {
+                    if (existing != this && existing.isHostClient) {
+                        hostAlreadyConnected = true;
+                        break;
+                    }
+                }
+                this.isHostClient = isLoopback
+                    && tunnelConnectionInfo == null
+                    && !hostAlreadyConnected
+                    && this.server.hostUsername != null
+                    && this.username.equalsIgnoreCase(this.server.hostUsername);
                 this.loggedIn = true;
                 this.server.addClient(this);
-                if ((this.username.equalsIgnoreCase(this.server.hostUsername) || this.server.clients.size() <= 1) && hostCoatOfArms != null) {
+                if (this.isHostClient && hostCoatOfArms != null) {
                     this.coatOfArms = (byte[])hostCoatOfArms.clone();
+                } else if (!this.isHostClient && tunnelConnectionInfo != null
+                        && tunnelConnectionInfo.coatOfArms != null && tunnelConnectionInfo.coatOfArms.length >= 12) {
+                    // Populate the remote Steam friend's serialized Coat of Arms received in OP_OPEN
+                    // so their own heraldry is immediately known and echoed to their client.
+                    this.coatOfArms = new byte[12];
+                    System.arraycopy(tunnelConnectionInfo.coatOfArms, 0, this.coatOfArms, 0, 12);
                 }
                 this.sendUnlockedProfileAndReadiness();
                 System.out.println("[AoGServer] Login SUCCESS sent to " + this.username + " [id=" + this.playerId + "]");
+                // Automatically place remote Steam guests into Multiplayer Lobby immediately upon login.
+                // In unpatched versions, guests only entered the lobby when the client sent Opcode 9,
+                // leaving guests stuck on the Main Menu until manually clicking "Join Lobby".
+                if (!this.isHostClient) {
+                    System.out.println("[AoGServer] Auto-entering remote guest " + this.username + " into Multiplayer Lobby.");
+                    this.server.handleEnterLobby(this);
+                }
                 while (this.connected) {
                     int n20 = this.in.read();
                     if (n20 == -1) {
@@ -1643,6 +1993,30 @@ public class AoGServer {
                 case 17: 
                 case 68: 
                 case 81: {
+                    break;
+                }
+                case 2: {
+                    // Client Opcode 2: 'te.a(int, bj, int)' UI state tracking: 3 fixed bytes [byte: bj.n, short: bj.m]
+                    this.in.readNBytes(3);
+                    break;
+                }
+                case 3: 
+                case 5: 
+                case 6: {
+                    // Client Opcodes 3, 5, 6: Variable-length telemetry packets (1-byte length followed by payload)
+                    // Opcode 3: 'bw.a' -> 'wr.a(byte, aj, int)' UI interaction tracking
+                    // Opcode 5: 'op.a' -> 'tc.a(int, rs, byte)' settings/preference queue flush
+                    // Opcode 6: 'pj.b' -> 'hp.a(li, int, int)' event queue flush (triggered during Settings changes)
+                    int nTelemetryLen = this.in.readUnsignedByte();
+                    this.in.readNBytes(nTelemetryLen);
+                    break;
+                }
+                case 4: 
+                case 7: {
+                    // Client Opcodes 4, 7: Fixed 2-byte telemetry packets
+                    // Opcode 4: 'ah.a' -> 'a.a(int, byte)' [byte, byte]
+                    // Opcode 7: 'aw.a' -> 'tf.a(int, nt, byte)' [byte, byte]
+                    this.in.readNBytes(2);
                     break;
                 }
                 case 75: {
@@ -1710,9 +2084,10 @@ public class AoGServer {
                 }
                 case 71: {
                     this.coatOfArms = this.in.readNBytes(12);
-                    System.out.println("[AoGServer] Stored coat of arms customization for " + this.username);
-                    if (!this.username.equalsIgnoreCase(this.server.hostUsername) && this.server.clients.size() > 1) break;
-                    AoGServer.setHostCoatOfArms(this.coatOfArms);
+                    System.out.println("[AoGServer] Stored coat of arms customization for " + this.username + (this.isHostClient ? " [host]" : " [guest]"));
+                    if (this.isHostClient) {
+                        AoGServer.setHostCoatOfArms(this.coatOfArms);
+                    }
                     break;
                 }
                 case 72: {
@@ -1725,7 +2100,7 @@ public class AoGServer {
                     break;
                 }
                 case 74: {
-                    this.server.handleTurnTimeout(this);
+                    this.server.handleCombatAnimationPause(this);
                     break;
                 }
                 case 76: {
@@ -1759,7 +2134,12 @@ public class AoGServer {
         public void sendUnlockedProfileAndReadiness() {
             byte[] byArray = this.server.getEngine().buildUnlockedProfilePacket();
             this.sendVarShortPacket(80, byArray);
-            this.sendFixedPacket(75, this.coatOfArms != null ? this.coatOfArms : new byte[12]);
+            // Only transmit Packet 75 when this player actually has an authoritative coat array;
+            // sending a synthetic all-zero dummy when coatOfArms == null would wipe a coatless
+            // guest's own local client Coat of Arms on login.
+            if (this.coatOfArms != null) {
+                this.sendFixedPacket(75, this.coatOfArms);
+            }
             this.sendVarBytePacket(81, new byte[]{0});
         }
 
@@ -1869,6 +2249,8 @@ public class AoGServer {
             this.host = clientHandler;
             this.members.add(clientHandler);
             this.options = byArray;
+            // Sync initial team mode flag from Multiplayer Lobby Option 4 (Game Type: 0 = FFA, 1 = Team Game)
+            this.isTeams = byArray != null && byArray.length > 4 && (byArray[4] & 0xFF) == 1;
         }
     }
 }

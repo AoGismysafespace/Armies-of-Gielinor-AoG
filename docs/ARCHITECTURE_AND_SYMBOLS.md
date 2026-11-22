@@ -94,9 +94,9 @@ All game traffic between Host and Guest is multiplexed over Steam P2P using 4 fr
 
 | Path | Purpose | Format |
 | :--- | :--- | :--- |
-| `C:\Users\<User>\.armiesofgielinor\player.properties` | Campaign progress, volume, username, resolution. | Java Key-Value Properties |
-| `C:\Users\<User>\.armiesofgielinor\caches\armiesofgielinor\` | Persistent game cache store (`main_file_cache.dat2`). | Jagex JS5 Binary Archive |
-| `C:\Users\<User>\AppData\Local\ArmiesOfGielinor_App\` | Standalone `.exe` payload extraction cache. | Application Directory |
+| `%USERPROFILE%\.armiesofgielinor\player.properties` | Campaign progress, volume, username, resolution. | Java Key-Value Properties |
+| `%USERPROFILE%\.armiesofgielinor\caches\armiesofgielinor\` | Persistent game cache store (`main_file_cache.dat2`). | Jagex JS5 Binary Archive |
+| `%USERPROFILE%\AppData\Local\ArmiesOfGielinor_App\` | Standalone `.exe` payload extraction cache. | Application Directory |
 | `app/ArmiesOfGielinor.jar` | Core game executable containing launcher, server, and client. | Standard JAR Archive |
 | `steam_appid.txt` | Steamworks configuration (AppID `480` = *Spacewar*). | ASCII Text |
 

@@ -1,6 +1,6 @@
-# ==============================================================================
+﻿# ==============================================================================
 # build_release.ps1: Automated Packager for Armies of Gielinor Release ZIP
-# Milestone: v1.0.6 — Spectator Banner Auto-Dismiss & Real-Time Map Scrolling Sync
+# Milestone: v1.0.28 — Asset Loading 75% Freeze Fix & Dynamic JS5 Serving
 #
 # 1. ARCHITECTURAL CONTEXT & RUNTIME SPECIFICATIONS:
 #    The game distribution embeds an OpenJDK JRE in extracted/runtime/ (JAVA_VERSION="18.0.2.1").
@@ -9,23 +9,20 @@
 #    will immediately cause a fatal UnsupportedClassVersionError at runtime.
 #
 # 2. KEY COMPONENTS & SYMBOL MAPPING:
-#    - ArmiesOfGielinor.jar: Patched game JAR containing StandaloneRunner, AoGServer, and AoGBattleBridge.
+#    - ArmiesOfGielinor.jar: Patched game JAR containing StandaloneRunner, AoGServer, BattleEngine,
+#      AoGBattleBridge, BugReporter, and AntiIdleWatchdog (zero original 2009 Jagex '.class' files modified).
+#    - AntiIdleWatchdog: Background daemon thread resetting engine idle counters (av.a, fc.b)
+#      before the 20-minute Jagex inactivity disconnect threshold is reached.
 #    - AoGServer: Multiplayer host server handling TCP lobbies, packets, and turn coordination.
-#      Patched to handle Opcode 73 (Client Turn Ready) and broadcast Packet 76 (turn unpause & Vb sync)
-#      with a 2.5s fallback so spectator banners dismiss smoothly and map scrolling unlocks.
-#    - AoGBattleBridge: Battle engine coordination interface (implements net.alterorb.server.BattleEngine)
-#      with dynamic FIFO event pump broadcasting Packet 68 combat strikes (opcode 0x60),
-#      scoped suppression of redundant Packet 68 'hp' packets, and authoritative win/loss conditions.
-#    - Manual.pdf: Illustrated 9-page retro-style manual containing lore, Steam P2P operations,
-#      UI layout, pantheons, structure/economy tables, terrain rules, and the complete 88-unit stat database.
+#    - AoGBattleBridge: Authoritative battle simulation bridge (implements BattleEngine).
+#    - Enhanced_Options.bat: Unified English interactive launcher script for Skirmish AI pantheons and coats.
+#    - Manual.pdf: Illustrated 31-page retro-style manual with the complete 75-unit Steckbrief compendium.
 #    - RestoreAndVerify: Automated audit & restoration tool ensuring 0 bytecode version violations exist.
 #
-# 3. MILESTONE ARCHIVES PRESERVED:
-#    - v1.0.2: Partially Functional Multiplayer (Lobby & In-Game Sync Milestone)
-#    - v1.0.3: Working Multiplayer Combat (Dynamic Battle Event Pump Milestone)
-#    - v1.0.4: Fully Functional Multiplayer Combat & Unit Slaying (Redundant Death Packet Suppression Milestone)
-#    - v1.0.5: Full Win/Loss Conditions & Authoritative Match Ending (Conquest & VP Match Resolution Milestone)
-#    - v1.0.6: Spectator Banner Auto-Dismiss & Real-Time Map Scrolling Sync (Packet 73/76 Handshake Milestone)
+# 3. HISTORICAL ARCHIVE PRESERVATION POLICY:
+#    Prior release ZIPs (v1.0.1 .. v1.0.24) are intentionally preserved untouched as version history.
+#    This script builds v1.0.25 (plus its dedicated milestone backup) and updates Aktuell/
+#    without overwriting historical versioned ZIPs.
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -35,33 +32,56 @@ if ([string]::IsNullOrEmpty($PSScriptRoot)) {
 } else {
     $workspace = $PSScriptRoot
 }
+# If invoked from tools/ or ArmiesOfGielinor_GitHub/tools/, resolve parent workspace root
+if (-not (Test-Path (Join-Path $workspace "extracted"))) {
+    if (Test-Path (Join-Path $workspace "..\extracted")) {
+        $workspace = (Resolve-Path (Join-Path $workspace "..")).Path
+    } elseif (Test-Path (Join-Path $workspace "..\..\extracted")) {
+        $workspace = (Resolve-Path (Join-Path $workspace "..\..")).Path
+    }
+}
+
 $stagingRoot = Join-Path $workspace "release_staging"
 $stagingDir = Join-Path $stagingRoot "ArmiesOfGielinor"
 $extractedDir = Join-Path $workspace "extracted"
 
-# Primary Versioned Release
-$releaseZipV106 = Join-Path $workspace "ArmiesOfGielinor_v1.0.6.zip"
-# Backward-compatible references & prior milestones
-$releaseZipV105 = Join-Path $workspace "ArmiesOfGielinor_v1.0.5.zip"
-$releaseZipV104 = Join-Path $workspace "ArmiesOfGielinor_v1.0.4.zip"
-$releaseZipV103 = Join-Path $workspace "ArmiesOfGielinor_v1.0.3.zip"
-$releaseZipV102 = Join-Path $workspace "ArmiesOfGielinor_v1.0.2.zip"
-$releaseZipV101 = Join-Path $workspace "ArmiesOfGielinor_v1.0.1.zip"
-$legacyZip = Join-Path $workspace "ArmiesOfGielinor_Patched.zip"
-
-# Dedicated Milestone Fallback Archives
-$milestoneZipV106 = Join-Path $workspace "ArmiesOfGielinor_v1.0.6_Milestone_SpectatorBannerDismissalSync.zip"
-$milestoneZipV105 = Join-Path $workspace "ArmiesOfGielinor_v1.0.5_Milestone_FullWinConditionsFunctional.zip"
-$milestoneZipV104 = Join-Path $workspace "ArmiesOfGielinor_v1.0.4_Milestone_FullCombatFunctional.zip"
+# Primary Versioned Release (v1.0.28) — historical v1.0.1..v1.0.27 ZIPs are preserved in releases/archive/
+$releaseVersion = "v1.0.28"
+$releasesDir = Join-Path $workspace "releases"
+$archiveDir = Join-Path $releasesDir "archive"
+$releaseZip = Join-Path $releasesDir "ArmiesOfGielinor_${releaseVersion}.zip"
+$githubReleaseDir = Join-Path $workspace "ArmiesOfGielinor_GitHub\release"
 $backupDir = Join-Path $workspace "backups"
 
-Write-Host "=== Building Clean Armies of Gielinor Release Package (v1.0.6) ==="
+Write-Host "=== Building Clean Armies of Gielinor Release Package ($releaseVersion) ==="
 
 # 0. Bytecode Compatibility Audit & Restoration
 Write-Host "Verifying bytecode compatibility (target: Java 18, major <= 62)..."
-$javaExe = "C:\Program Files\Eclipse Adoptium\jdk-21.0.4.7-hotspot\bin\java.exe"
-if (Test-Path (Join-Path $workspace "RestoreAndVerify.class")) {
-    & $javaExe -cp $workspace RestoreAndVerify $workspace
+$javaExe = $null
+$candidateJavas = @(
+    "C:\Program Files\Java\jdk-26.0.2\bin\java.exe",
+    "C:\Program Files\Java\jdk-19\bin\java.exe",
+    "C:\Program Files\Eclipse Adoptium\jdk-21.0.4.7-hotspot\bin\java.exe"
+)
+foreach ($c in $candidateJavas) {
+    if (Test-Path $c) { $javaExe = $c; break }
+}
+if (-not $javaExe) {
+    $javaExe = (Get-Command java -ErrorAction SilentlyContinue).Source
+}
+
+# Locate RestoreAndVerify class across modular source/tools paths
+$restoreClassDir = $null
+if (Test-Path (Join-Path $workspace "src\RestoreAndVerify.class")) {
+    $restoreClassDir = Join-Path $workspace "src"
+} elseif (Test-Path (Join-Path $workspace "RestoreAndVerify.class")) {
+    $restoreClassDir = $workspace
+} elseif (Test-Path (Join-Path $workspace "tools\RestoreAndVerify.class")) {
+    $restoreClassDir = Join-Path $workspace "tools"
+}
+
+if ($restoreClassDir) {
+    & $javaExe -cp $restoreClassDir RestoreAndVerify $workspace
     if ($LASTEXITCODE -ne 0) {
         throw "Bytecode compatibility verification failed! Aborting package build."
     }
@@ -83,7 +103,12 @@ Copy-Item (Join-Path $extractedDir "steam_api64.dll") $stagingDir
 Copy-Item (Join-Path $extractedDir "steamworks4j64.dll") $stagingDir
 Copy-Item (Join-Path $extractedDir "steam_appid.txt") $stagingDir
 Copy-Item (Join-Path $extractedDir "README.md") $stagingDir
-# Include the illustrated retro game manual in the release root alongside README.md
+if (Test-Path (Join-Path $extractedDir "enhanced_options.txt")) {
+    Copy-Item (Join-Path $extractedDir "enhanced_options.txt") $stagingDir
+}
+if (Test-Path (Join-Path $extractedDir "Enhanced_Options.bat")) {
+    Copy-Item (Join-Path $extractedDir "Enhanced_Options.bat") $stagingDir
+}
 if (Test-Path (Join-Path $extractedDir "Manual.pdf")) {
     Copy-Item (Join-Path $extractedDir "Manual.pdf") $stagingDir
 }
@@ -97,22 +122,92 @@ Copy-Item (Join-Path $extractedDir "app\ArmiesOfGielinor.cfg") (Join-Path $stagi
 Write-Host "Copying bundled Java 18 runtime (18.0.2.1)..."
 Copy-Item (Join-Path $extractedDir "runtime") $stagingDir -Recurse
 
-# 5. Create compressed ZIP package containing the ArmiesOfGielinor/ root folder
-Write-Host "Compressing release package to $releaseZipV106..."
-if (Test-Path $releaseZipV106) { Remove-Item $releaseZipV106 -Force }
-Compress-Archive -Path $stagingDir -DestinationPath $releaseZipV106 -Force
+# 4b. Copy portable caches directory
+if (Test-Path (Join-Path $extractedDir "caches")) {
+    Write-Host "Copying portable caches directory (armiesofgielinor)..."
+    Copy-Item (Join-Path $extractedDir "caches") $stagingDir -Recurse -Force
+}
 
-# 6. Keep aliases, backups, and backward-compatible references in sync
-Write-Host "Syncing milestone and fallback archives..."
-Copy-Item $releaseZipV106 $milestoneZipV106 -Force
-Copy-Item $releaseZipV106 $releaseZipV105 -Force
-Copy-Item $releaseZipV106 $releaseZipV104 -Force
-Copy-Item $releaseZipV106 $releaseZipV103 -Force
-Copy-Item $releaseZipV106 $releaseZipV102 -Force
-Copy-Item $releaseZipV106 $releaseZipV101 -Force
-Copy-Item $releaseZipV106 $legacyZip -Force
-Copy-Item $releaseZipV106 (Join-Path $backupDir "ArmiesOfGielinor_v1.0.6_Milestone_SpectatorBannerDismissalSync.zip") -Force
-Copy-Item (Join-Path $extractedDir "app\ArmiesOfGielinor.jar") (Join-Path $backupDir "ArmiesOfGielinor_v1.0.6_milestone.jar") -Force
+# 5. Create compressed v1.0.9 ZIP package containing the ArmiesOfGielinor/ root folder
+Write-Host "Compressing release package to $releaseZip..."
+if (Test-Path $releaseZip) { Remove-Item $releaseZip -Force }
+Compress-Archive -Path $stagingDir -DestinationPath $releaseZip -Force
+
+# 6. Save v1.0.21 milestone backup & add alongside untouched historical ZIPs in releases/ and ArmiesOfGielinor_GitHub/release/
+Write-Host "Saving $releaseVersion milestone backup and archiving prior versions alongside preserved historical releases..."
+if (Test-Path $archiveDir) {
+    $oldV1011Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.11.zip"
+    if (Test-Path $oldV1011Zip) {
+        Copy-Item $oldV1011Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.11.zip") -Force
+    }
+    # Ensure v1.0.13 is preserved in archive
+    $oldV1013Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.13.zip"
+    if (Test-Path $oldV1013Zip) {
+        Copy-Item $oldV1013Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.13.zip") -Force
+    }
+    $oldV1015Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.15.zip"
+    if (Test-Path $oldV1015Zip) {
+        Copy-Item $oldV1015Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.15.zip") -Force
+    }
+    $oldV1016Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.16.zip"
+    if (Test-Path $oldV1016Zip) {
+        Copy-Item $oldV1016Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.16.zip") -Force
+    }
+    $oldV1017Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.17.zip"
+    if (Test-Path $oldV1017Zip) {
+        Copy-Item $oldV1017Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.17.zip") -Force
+    }
+    $oldV1018Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.18.zip"
+    if (Test-Path $oldV1018Zip) {
+        Copy-Item $oldV1018Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.18.zip") -Force
+    }
+    $oldV1019Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.19.zip"
+    if (Test-Path $oldV1019Zip) {
+        Copy-Item $oldV1019Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.19.zip") -Force
+    }
+    $oldV1020Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.20.zip"
+    if (Test-Path $oldV1020Zip) {
+        Copy-Item $oldV1020Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.20.zip") -Force
+    }
+    $oldV1021Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.21.zip"
+    if (Test-Path $oldV1021Zip) {
+        Copy-Item $oldV1021Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.21.zip") -Force
+    }
+    $oldV1022Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.22.zip"
+    if (Test-Path $oldV1022Zip) {
+        Copy-Item $oldV1022Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.22.zip") -Force
+    }
+    $oldV1023Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.23.zip"
+    if (Test-Path $oldV1023Zip) {
+        Copy-Item $oldV1023Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.23.zip") -Force
+    }
+    $oldV1024Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.24.zip"
+    if (Test-Path $oldV1024Zip) {
+        Copy-Item $oldV1024Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.24.zip") -Force
+    }
+    $oldV1025Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.25.zip"
+    if (Test-Path $oldV1025Zip) {
+        Copy-Item $oldV1025Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.25.zip") -Force
+    }
+    $oldV1026Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.26.zip"
+    if (Test-Path $oldV1026Zip) {
+        Copy-Item $oldV1026Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.26.zip") -Force
+    }
+    $oldV1027Zip = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.27.zip"
+    if (Test-Path $oldV1027Zip) {
+        Copy-Item $oldV1027Zip (Join-Path $archiveDir "ArmiesOfGielinor_v1.0.27.zip") -Force
+    }
+    Copy-Item $releaseZip (Join-Path $archiveDir "ArmiesOfGielinor_${releaseVersion}_Milestone_AssetLoadingFreezeFix.zip") -Force
+}
+Copy-Item $releaseZip (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_Milestone_AssetLoadingFreezeFix.zip") -Force
+Copy-Item (Join-Path $extractedDir "app\ArmiesOfGielinor.jar") (Join-Path $backupDir "ArmiesOfGielinor_${releaseVersion}_milestone.jar") -Force
+if (Test-Path $githubReleaseDir) {
+    Copy-Item $releaseZip (Join-Path $githubReleaseDir "ArmiesOfGielinor_${releaseVersion}.zip") -Force
+    $releaseNotes = Join-Path $releasesDir "RELEASE_NOTES_${releaseVersion}.md"
+    if (Test-Path $releaseNotes) {
+        Copy-Item $releaseNotes (Join-Path $githubReleaseDir "RELEASE_NOTES_${releaseVersion}.md") -Force
+    }
+}
 
 # 7. Synchronize the local playable ArmiesOfGielinor/ folder
 Write-Host "Syncing live playable ArmiesOfGielinor folder..."
@@ -125,10 +220,57 @@ if (Test-Path $liveAppDir) {
     if (Test-Path (Join-Path $extractedDir "README.md")) {
         Copy-Item (Join-Path $extractedDir "README.md") (Join-Path $liveAppDir "README.md") -Force
     }
+    if (Test-Path (Join-Path $liveAppDir "KI-Götter_Umschalten.bat")) {
+        Remove-Item (Join-Path $liveAppDir "KI-Götter_Umschalten.bat") -Force
+    }
+    if (Test-Path (Join-Path $liveAppDir "Toggle_AI_Gods.bat")) {
+        Remove-Item (Join-Path $liveAppDir "Toggle_AI_Gods.bat") -Force
+    }
+    if (Test-Path (Join-Path $extractedDir "enhanced_options.txt")) {
+        Copy-Item (Join-Path $extractedDir "enhanced_options.txt") (Join-Path $liveAppDir "enhanced_options.txt") -Force
+    }
+    if (Test-Path (Join-Path $extractedDir "Enhanced_Options.bat")) {
+        Copy-Item (Join-Path $extractedDir "Enhanced_Options.bat") (Join-Path $liveAppDir "Enhanced_Options.bat") -Force
+    }
+    if (Test-Path (Join-Path $extractedDir "caches")) {
+        Copy-Item (Join-Path $extractedDir "caches") $liveAppDir -Recurse -Force
+    }
 }
 
-# 8. Clean up temporary staging directory
-Remove-Item -Path $stagingRoot -Recurse -Force
+# 8. Synchronize the dedicated 'Aktuell/' folder per project rule
+Write-Host "Syncing dedicated 'Aktuell/' folder with current release..."
+$aktuellDir = Join-Path $workspace "Aktuell"
+if (-not (Test-Path $aktuellDir)) {
+    New-Item -ItemType Directory -Path $aktuellDir -Force | Out-Null
+}
+# Keep only the current release ZIP in Aktuell/
+Get-ChildItem -Path $aktuellDir -File -Filter "ArmiesOfGielinor*.zip" | 
+    Where-Object { $_.Name -ne (Split-Path $releaseZip -Leaf) } | 
+    Remove-Item -Force
+Copy-Item $releaseZip (Join-Path $aktuellDir (Split-Path $releaseZip -Leaf)) -Force
 
-$zipSize = (Get-Item $releaseZipV106).Length / 1MB
-Write-Host "=== Milestone v1.0.6 Release Package Created Successfully ($([math]::Round($zipSize, 2)) MB) ==="
+# Mirror playable game folder into Aktuell/ArmiesOfGielinor/
+$aktuellAppDir = Join-Path $aktuellDir "ArmiesOfGielinor"
+if (-not (Test-Path $aktuellAppDir)) {
+    New-Item -ItemType Directory -Path $aktuellAppDir -Force | Out-Null
+}
+Copy-Item (Join-Path $liveAppDir "*") $aktuellAppDir -Recurse -Force
+if (Test-Path (Join-Path $aktuellAppDir "KI-Götter_Umschalten.bat")) {
+    Remove-Item (Join-Path $aktuellAppDir "KI-Götter_Umschalten.bat") -Force
+}
+if (Test-Path (Join-Path $aktuellAppDir "Toggle_AI_Gods.bat")) {
+    Remove-Item (Join-Path $aktuellAppDir "Toggle_AI_Gods.bat") -Force
+}
+
+# 9. Clean up temporary staging directory
+if (Test-Path $stagingRoot) {
+    Start-Sleep -Milliseconds 800
+    try {
+        Remove-Item -Path $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    } catch {
+        # Non-fatal if temporary staging cleanup is delayed by Windows file indexer
+    }
+}
+
+$zipSize = (Get-Item $releaseZip).Length / 1MB
+Write-Host "=== Milestone $releaseVersion Release Package Created Successfully ($([math]::Round($zipSize, 2)) MB) ==="

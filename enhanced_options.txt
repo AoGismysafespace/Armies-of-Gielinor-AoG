@@ -1,0 +1,33 @@
+# ==============================================================================
+# Armies of Gielinor - Enhanced Options Configuration
+# ==============================================================================
+#
+# This configuration file allows you to customize tactical AI behavior and
+# heraldry in Skirmish (free battle / sandbox) matches.
+#
+# Changes made here apply immediately to your next Skirmish match.
+# To toggle these settings with an interactive menu, you can also run:
+#   Enhanced_Options.bat
+#
+# ==============================================================================
+# 1. AI Pantheon Selection in Skirmish
+# ==============================================================================
+# Controls how computer opponents select their gods:
+#   random = (Recommended) Each bot rolls 3 distinct gods across all 6 pantheons
+#            (Saradomin, Zamorak, Guthix, Seren, Bandos, Menaphite) for dynamic,
+#            diverse armies.
+#   mirror = Original 2009 behavior; all bots inherit the exact same 3 gods
+#            chosen by the human player.
+#
+ai_gods_mode=random
+
+# ==============================================================================
+# 2. AI Coat of Arms / Heraldry in Skirmish
+# ==============================================================================
+# Controls how computer opponents receive heraldic crests:
+#   random = (Recommended) Each bot receives a unique, randomized Coat of Arms
+#            displayed on its summoning portals, fortress flags, and turn banner.
+#   mirror = Original 2009 behavior; all bots duplicate the human player's
+#            custom Coat of Arms.
+#
+ai_coats_mode=random

@@ -70,6 +70,81 @@ public class RestoreAndVerify {
             throw new IllegalStateException("Pristine class has incompatible major version: " + srcMajor);
         }
 
+        // Map of all verified pristine classes to synchronize into target JARs
+        Map<String, byte[]> classesToSync = new LinkedHashMap<>();
+        classesToSync.put("AoGBattleBridge.class", pristineBytes);
+
+        // Also discover and sync verified AoGServer classes from jar_extracted/net/alterorb/server/
+        Path serverClassDir = workspace.resolve("jar_extracted/net/alterorb/server");
+        if (Files.exists(serverClassDir)) {
+            try (var stream = Files.list(serverClassDir)) {
+                for (Path p : stream.filter(f -> f.toString().endsWith(".class")).toList()) {
+                    String relName = "net/alterorb/server/" + p.getFileName().toString();
+                    byte[] classBytes = Files.readAllBytes(p);
+                    int maj = getMajorVersion(classBytes);
+                    if (maj > TARGET_MAX_MAJOR_VERSION) {
+                        throw new IllegalStateException("Server class " + relName + " has incompatible major version: " + maj);
+                    }
+                    classesToSync.put(relName, classBytes);
+                }
+            }
+        }
+
+        // Also discover and sync verified launcher classes from jar_extracted/net/alterorb/launcher/
+        Path launcherClassDir = workspace.resolve("jar_extracted/net/alterorb/launcher");
+        if (Files.exists(launcherClassDir)) {
+            try (var stream = Files.list(launcherClassDir)) {
+                for (Path p : stream.filter(f -> f.toString().endsWith(".class")).toList()) {
+                    String relName = "net/alterorb/launcher/" + p.getFileName().toString();
+                    byte[] classBytes = Files.readAllBytes(p);
+                    int maj = getMajorVersion(classBytes);
+                    if (maj > TARGET_MAX_MAJOR_VERSION) {
+                        throw new IllegalStateException("Launcher class " + relName + " has incompatible major version: " + maj);
+                    }
+                    classesToSync.put(relName, classBytes);
+                }
+            }
+        }
+
+        // Also discover and sync verified Steam tunnel/bridge classes (including inner classes like
+        // SteamP2PTunnel$GuestProxy.class and SteamP2PTunnel$HostBridge.class) from jar_extracted/net/alterorb/steam/
+        Path steamClassDir = workspace.resolve("jar_extracted/net/alterorb/steam");
+        if (Files.exists(steamClassDir)) {
+            try (var stream = Files.list(steamClassDir)) {
+                for (Path p : stream.filter(f -> f.toString().endsWith(".class")).toList()) {
+                    String relName = "net/alterorb/steam/" + p.getFileName().toString();
+                    byte[] classBytes = Files.readAllBytes(p);
+                    int maj = getMajorVersion(classBytes);
+                    if (maj > TARGET_MAX_MAJOR_VERSION) {
+                        throw new IllegalStateException("Steam class " + relName + " has incompatible major version: " + maj);
+                    }
+                    classesToSync.put(relName, classBytes);
+                }
+            }
+        }
+
+        // Also discover and sync verified patched ej.class (AI turn frame slicer) from jar_extracted/ej.class
+        Path ejClassPath = workspace.resolve("jar_extracted/ej.class");
+        if (Files.exists(ejClassPath)) {
+            byte[] ejBytes = Files.readAllBytes(ejClassPath);
+            int ejMaj = getMajorVersion(ejBytes);
+            if (ejMaj > TARGET_MAX_MAJOR_VERSION) {
+                throw new IllegalStateException("Class ej.class has incompatible major version: " + ejMaj);
+            }
+            classesToSync.put("ej.class", ejBytes);
+        }
+
+        // Also discover and sync verified patched kr.class (Achievement UI single Menu button) from jar_extracted/kr.class
+        Path krClassPath = workspace.resolve("jar_extracted/kr.class");
+        if (Files.exists(krClassPath)) {
+            byte[] krBytes = Files.readAllBytes(krClassPath);
+            int krMaj = getMajorVersion(krBytes);
+            if (krMaj > TARGET_MAX_MAJOR_VERSION) {
+                throw new IllegalStateException("Class kr.class has incompatible major version: " + krMaj);
+            }
+            classesToSync.put("kr.class", krBytes);
+        }
+
         // Target JAR locations to update and audit
         List<Path> targetJars = Arrays.asList(
             workspace.resolve("extracted/app/ArmiesOfGielinor.jar"),
@@ -77,16 +152,14 @@ public class RestoreAndVerify {
             Paths.get(System.getProperty("user.home"), "AppData/Local/ArmiesOfGielinor_App/app/ArmiesOfGielinor.jar")
         );
 
-        String entryName = "AoGBattleBridge.class";
-
         for (Path jarPath : targetJars) {
             if (!Files.exists(jarPath)) {
                 System.out.println("[Skip] Target JAR not found: " + jarPath);
                 continue;
             }
 
-            System.out.println("\n[Injecting] Updating " + jarPath.getFileName() + " with pristine " + entryName + "...");
-            injectEntry(jarPath, entryName, pristineBytes);
+            System.out.println("\n[Injecting] Updating " + jarPath.getFileName() + " with " + classesToSync.size() + " verified classes in a single atomic batch...");
+            injectEntries(jarPath, classesToSync);
             System.out.println("[Injected Successfully] " + jarPath);
 
             // Audit the JAR to verify 100% compatibility across all classes
@@ -103,15 +176,27 @@ public class RestoreAndVerify {
     }
 
     /**
-     * Injects or replaces a bytecode class entry within a target ZIP/JAR file using the zipfs provider.
+     * Injects or replaces multiple bytecode class entries within a target ZIP/JAR file in a single atomic operation.
+     * 
+     * WHY BATCH INJECTION IS MANDATORY:
+     * On Windows, opening and closing the ZipFileSystem provider repeatedly (e.g. 23 consecutive times)
+     * triggers rapid temp-file creation (zipfstmp...tmp) and rename operations. If antivirus software,
+     * indexing, or background file monitors inspect the temporary file during close, Windows throws a fatal
+     * FileSystemException ("Der Prozess kann nicht auf die Datei zugreifen"). Opening the archive ONCE,
+     * writing all classes, and closing it cleanly prevents file lock contention entirely.
      */
-    private static void injectEntry(Path jarPath, String entryName, byte[] data) throws Exception {
+    private static void injectEntries(Path jarPath, Map<String, byte[]> entries) throws Exception {
         Map<String, String> env = new HashMap<>();
         env.put("create", "false");
         URI uri = URI.create("jar:" + jarPath.toUri());
         try (FileSystem fs = FileSystems.newFileSystem(uri, env)) {
-            Path targetEntry = fs.getPath(entryName);
-            Files.write(targetEntry, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+                Path targetEntry = fs.getPath(entry.getKey());
+                if (targetEntry.getParent() != null) {
+                    Files.createDirectories(targetEntry.getParent());
+                }
+                Files.write(targetEntry, entry.getValue(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            }
         }
     }
 
