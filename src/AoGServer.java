@@ -33,7 +33,7 @@
  *    Lobby SubOp 18           | AddRoomMember                       | Adds player to room roster display
  *    --------------------------------------------------------------------------------------------------
  *
- * 3. MID-COMBAT TIMER CLOBBER & TURN-0 GUARD (v1.0.8):
+ * 3. MID-COMBAT TIMER CLOBBER & TURN-0 GUARD (v0.8 / Beta):
  *    - Turn 0 ('Gb == 0') skips the stone turn banner ('ArmiesOfGielinor.java:342') and never freezes
  *      spectators ('Vb < Gb' is '0 < 0 == false' at 'ic.java:2879'), so no 2.5s Packet 76 fallback is
  *      scheduled on Turn 0.
@@ -42,13 +42,13 @@
  *      guaranteeing Packet 76 never forces 'ic.Tb = false' mid-combat while still unfreezing spectator
  *      banners reliably on all Turns >= 1.
  *
- * 4. ATOMIC MATCH LAUNCH GUARD (v1.0.23):
+ * 4. ATOMIC MATCH LAUNCH GUARD (v0.23 / Beta):
  *    - 'handleStartMatchRequest' generates 'MatchLaunchData' via 'engine.startMatch(...)' BEFORE removing
  *      the 'LobbyRoom' or clearing player lobby state ('currentRoom', 'inLobby'), ensuring any launch
  *      exception cannot crash 'ClientHandler.run()' or sever the host's TCP socket.
  *    - 'LobbyRoom.isTeams' stays synchronized with Lobby Option 4 ('options[4]': 0=FFA, 1=Team Game).
  *
- * 5. STEAM INVITATION LOBBY & ROOM AUTO-JOIN (v1.0.25):
+ * 5. STEAM INVITATION LOBBY & ROOM AUTO-JOIN (v0.25 / Beta):
  *    - Automatically invokes 'handleEnterLobby(this)' for remote Steam guests (!this.isHostClient)
  *      immediately upon successful login, eliminating the need for invited friends to manually click
  *      "Join Lobby" in the menu.
@@ -57,7 +57,7 @@
  *    - In 'createRoom', checks for any connected waiting lobby guests and auto-joins them into the newly
  *      created room, ensuring instantaneous room placement regardless of whether the host or guest connects first.
  *
- * 6. DYNAMIC JS5 DISK CACHE STREAMING FALLBACK (v1.0.28):
+ * 6. DYNAMIC JS5 DISK CACHE STREAMING FALLBACK (v0.28 / Beta):
  *    - Automatically fulfills missing JS5 streaming requests (e.g. Archive 17 extra data files 43..56)
  *      by reading sectors dynamically from local disk cache ('main_file_cache.dat2' & '.idx') via
  *      'readArchiveFromDisk(index, archive)'.

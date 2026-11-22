@@ -20,8 +20,8 @@
 #    - RestoreAndVerify: Automated audit & restoration tool ensuring 0 bytecode version violations exist.
 #
 # 3. HISTORICAL ARCHIVE PRESERVATION POLICY:
-#    Prior release ZIPs (v1.0.1 .. v1.0.24) are intentionally preserved untouched as version history.
-#    This script builds v1.0.25 (plus its dedicated milestone backup) and updates Aktuell/
+#    Prior release ZIPs (v0.1 .. v0.24) are intentionally preserved untouched as version history.
+#    This script builds v0.25 (plus its dedicated milestone backup) and updates Aktuell/
 #    without overwriting historical versioned ZIPs.
 # ==============================================================================
 
@@ -45,7 +45,7 @@ $stagingRoot = Join-Path $workspace "release_staging"
 $stagingDir = Join-Path $stagingRoot "ArmiesOfGielinor"
 $extractedDir = Join-Path $workspace "extracted"
 
-# Primary Versioned Release (v1.0) — historical v1.0.1..v1.0.28 ZIPs are preserved in releases/archive/
+# Primary Versioned Release (v1.0) — historical v0.1..v0.28 ZIPs are preserved in releases/archive/
 $releaseVersion = "v1.0"
 $releasesDir = Join-Path $workspace "releases"
 $archiveDir = Join-Path $releasesDir "archive"
@@ -128,12 +128,12 @@ if (Test-Path (Join-Path $extractedDir "caches")) {
     Copy-Item (Join-Path $extractedDir "caches") $stagingDir -Recurse -Force
 }
 
-# 5. Create compressed v1.0.9 ZIP package containing the ArmiesOfGielinor/ root folder
+# 5. Create compressed v0.9 ZIP package containing the ArmiesOfGielinor/ root folder
 Write-Host "Compressing release package to $releaseZip..."
 if (Test-Path $releaseZip) { Remove-Item $releaseZip -Force }
 Compress-Archive -Path $stagingDir -DestinationPath $releaseZip -Force
 
-# 6. Save v1.0.21 milestone backup & add alongside untouched historical ZIPs in releases/ and ArmiesOfGielinor_GitHub/release/
+# 6. Save v0.21 milestone backup & add alongside untouched historical ZIPs in releases/ and ArmiesOfGielinor_GitHub/release/
 Write-Host "Saving $releaseVersion milestone backup and archiving prior versions alongside preserved historical releases..."
 if (Test-Path $archiveDir) {
     # Automatically archive all prior version ZIPs (v0.X / v1.0.X) into releases/archive/

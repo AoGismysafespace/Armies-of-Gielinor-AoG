@@ -51,5 +51,5 @@ Whenever writing, modifying, patching, or refactoring code, scripts, or configur
    ```powershell
    powershell -ExecutionPolicy Bypass -File tools/build_release.ps1
    ```
-4. Verify that all tests pass and that `ArmiesOfGielinor_v1.0.6.zip` builds cleanly with 0 bytecode violations.
+4. Verify that all tests pass and that `ArmiesOfGielinor_v0.6.zip` builds cleanly with 0 bytecode violations.
 5. Submit a concise Pull Request detailing your changes and test results.

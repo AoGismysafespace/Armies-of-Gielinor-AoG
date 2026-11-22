@@ -16,11 +16,11 @@
 #
 # 2. ROSETTA STONE / SYMBOL MAPPINGS:
 #    - docs/ARCHITECTURE_AND_SYMBOLS.md: Rosetta Stone mapping table for obfuscated symbols.
-#    - docs/MILESTONES.md: Verified fallback archive register (v1.0.1 through v1.0.8).
+#    - docs/MILESTONES.md: Verified fallback archive register (v0.1 through v0.8).
 #    - tools/build_release.ps1: Automated Java 18 release packaging engine.
 #    - tools/restore_milestone.ps1: Deterministic 1-click version switcher.
 #    - src/RestoreAndVerify.java: Classfile auditor ensuring Java 18 major <= 62 bytecode.
-#    - releases/ArmiesOfGielinor_v1.0.8.zip: Official packaged standalone game archive.
+#    - releases/ArmiesOfGielinor_v0.8.zip: Official packaged standalone game archive.
 #
 # 3. INLINE EXPLANATIONS:
 #    All moves are non-destructive. If a target already exists in the destination,
@@ -61,7 +61,7 @@ if (-not (Test-Path $archiveDir)) {
 }
 
 $historicalZips = Get-ChildItem -Path $workspace -File -Filter "ArmiesOfGielinor*.zip" | 
-    Where-Object { $_.Name -ne "ArmiesOfGielinor_v1.0.8.zip" }
+    Where-Object { $_.Name -ne "ArmiesOfGielinor_v0.8.zip" }
 
 foreach ($zip in $historicalZips) {
     $dest = Join-Path $archiveDir $zip.Name
@@ -69,13 +69,13 @@ foreach ($zip in $historicalZips) {
     Write-Host "  -> Moved $($zip.Name) to releases/archive/" -ForegroundColor White
 }
 
-# Ensure ArmiesOfGielinor_v1.0.8.zip is present in releases/ and remove redundant root copy
-$currentReleaseRoot = Join-Path $workspace "ArmiesOfGielinor_v1.0.8.zip"
-$currentReleaseTarget = Join-Path $releasesDir "ArmiesOfGielinor_v1.0.8.zip"
+# Ensure ArmiesOfGielinor_v0.8.zip is present in releases/ and remove redundant root copy
+$currentReleaseRoot = Join-Path $workspace "ArmiesOfGielinor_v0.8.zip"
+$currentReleaseTarget = Join-Path $releasesDir "ArmiesOfGielinor_v0.8.zip"
 if (Test-Path $currentReleaseRoot) {
     Copy-Item -Path $currentReleaseRoot -Destination $currentReleaseTarget -Force
     Remove-Item -Path $currentReleaseRoot -Force
-    Write-Host "  -> Filed ArmiesOfGielinor_v1.0.8.zip in releases/ and cleared root copy" -ForegroundColor Green
+    Write-Host "  -> Filed ArmiesOfGielinor_v0.8.zip in releases/ and cleared root copy" -ForegroundColor Green
 }
 
 # ------------------------------------------------------------------------------

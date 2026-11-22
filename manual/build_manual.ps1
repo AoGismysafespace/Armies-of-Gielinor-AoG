@@ -1,6 +1,6 @@
-# ==============================================================================
+﻿# ==============================================================================
 # build_manual.ps1: Retro-Style Game Manual Generator & Edge PDF Compiler
-# Milestone: v1.0.6 — Standalone Edition In-Game Font & Authentic Jagex UI Styling
+# Milestone: v1.0 — Standalone Golden Master Release
 #
 # 1. ARCHITECTURAL CONTEXT & PRIVACY SPECIFICATIONS:
 #    Compiles an authentic, fully self-contained HTML manual into a print-ready PDF booklet
@@ -55,8 +55,24 @@ $b64Roman12 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($roman12P
 
 # 2. Extract Complete Unit Database directly from bytecode & generate Steckbrief compendium
 Write-Host "Compiling and running Unit Compendium & Steckbrief generator..."
-$java = "C:\Program Files\Eclipse Adoptium\jdk-21.0.4.7-hotspot\bin\java.exe"
-$javac = "C:\Program Files\Eclipse Adoptium\jdk-21.0.4.7-hotspot\bin\javac.exe"
+$java = $null
+$javac = $null
+$candidateJavas = @(
+    "C:\Program Files\Java\jdk-26.0.2\bin\java.exe",
+    "C:\Program Files\Java\jdk-19\bin\java.exe",
+    "C:\Program Files\Eclipse Adoptium\jdk-21.0.4.7-hotspot\bin\java.exe"
+)
+foreach ($c in $candidateJavas) {
+    if (Test-Path $c) {
+        $java = $c
+        $javac = $c.Replace("java.exe", "javac.exe")
+        break
+    }
+}
+if (-not $java) {
+    $java = (Get-Command java -ErrorAction SilentlyContinue).Source
+    $javac = (Get-Command javac -ErrorAction SilentlyContinue).Source
+}
 $jarPath = Join-Path $workspace "extracted\app\ArmiesOfGielinor.jar"
 $testEnvDir = Join-Path $workspace "test_environment"
 
@@ -1147,7 +1163,7 @@ $unitTableRows
   </p>
 
   <div class="footer-vintage">
-    Armies of Gielinor &bull; Standalone Edition v1.0.6 &bull; Published for Modern Windows & Steam P2P &bull; 2026
+    Armies of Gielinor &bull; Standalone Edition v1.0 &bull; Published for Modern Windows & Steam P2P &bull; 2026
   </div>
 
 </div>
@@ -1162,9 +1178,17 @@ Write-Host "Wrote updated HTML manual: $htmlPath"
 
 # 5. Compile to PDF with Edge Headless
 Write-Host "Compiling to PDF with Edge Headless..."
-$edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-if (-not (Test-Path $edgePath)) {
-    $edgePath = "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+$candidateEdges = @(
+    "C:\Program Files (x86)\Microsoft\EdgeCore\157.0.4341.60\msedge.exe",
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+)
+$edgePath = $null
+foreach ($e in $candidateEdges) {
+    if (Test-Path $e) { $edgePath = $e; break }
+}
+if (-not $edgePath) {
+    $edgePath = (Get-ChildItem -Path "C:\Program Files (x86)\Microsoft\Edge*" -Filter "msedge.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
 }
 
 Start-Process -FilePath $edgePath -ArgumentList @(

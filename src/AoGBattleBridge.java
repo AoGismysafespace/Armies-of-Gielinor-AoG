@@ -71,7 +71,7 @@
  *    suppressing the redundant network packet while still executing 'hp.a(serverHa)' to authoritatively
  *    update the server board state.
  *
- * 4. POST-COMBAT TURN RETENTION & PROTOCOL COLLISION PROTECTION (v1.0.8):
+ * 4. POST-COMBAT TURN RETENTION & PROTOCOL COLLISION PROTECTION (v0.8 / Beta):
  *    - Non-Zero Combat Ticket ('nextBattleId' 1..255): Offline 'ns.java:186' constructs 'ag' with 'D = 0'.
  *      Assigning a monotonically cycling 1..255 'battleId' in 'serializeEvent' ensures 'ic.e(battleId, -56)'
  *      emits Client Opcode 73 with 'subOp == battleId > 0', never colliding with Turn Banner Ready ('subOp == 0')
@@ -85,7 +85,7 @@
  *      portal-capable unit in counterattack ('ag.N == true') while another duel continues, the server cleanly
  *      advances 'ha.gb' to the next surviving commander via 'advanceTurnInternal'.
  *
- * 5. MULTIPLAYER HUMAN GOD SELECTION & HERALDRY PRESERVATION (v1.0.24):
+ * 5. MULTIPLAYER HUMAN GOD SELECTION & HERALDRY PRESERVATION (v0.24 / Beta):
  *    - Online multiplayer rooms only contain connected human peers (no AI bot slots in 'AoGBattleBridge').
  *    - Previously calling 'GodManager.randomizeBotGods' and 'CoatManager.randomizeBotCoats' inside
  *      'startMatch' pre-assigned 3 random gods and random bot coats to slots >= 1, causing Server Packet 77

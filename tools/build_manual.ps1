@@ -1,6 +1,6 @@
 # ==============================================================================
 # build_manual.ps1: Retro-Style Game Manual Generator & Edge PDF Compiler
-# Milestone: v1.0.6 — Standalone Edition In-Game Font & Authentic Jagex UI Styling
+# Milestone: v0.6 — Standalone Edition In-Game Font & Authentic Jagex UI Styling
 #
 # 1. ARCHITECTURAL CONTEXT & PRIVACY SPECIFICATIONS:
 #    Compiles an authentic, fully self-contained HTML manual into a print-ready PDF booklet
@@ -1147,7 +1147,7 @@ $unitTableRows
   </p>
 
   <div class="footer-vintage">
-    Armies of Gielinor &bull; Standalone Edition v1.0.6 &bull; Published for Modern Windows & Steam P2P &bull; 2026
+    Armies of Gielinor &bull; Standalone Edition v0.6 &bull; Published for Modern Windows & Steam P2P &bull; 2026
   </div>
 
 </div>
